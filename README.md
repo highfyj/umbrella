@@ -33,7 +33,8 @@ npm run vn -- check --strict      发布前 QA：警告升级为错误
 ## 目录
 
 ```
-docs/dsl-design.md       DSL 设计文档（先读这个）
+docs/progress.md         阶段性文档（进度/决策汇总/换机上手，先读这个）
+docs/dsl-design.md       DSL 设计文档
 story/                   剧本源文件（story/characters/assets + scenes/*.yaml）
 voice/                   语音文件（voice/<场景>/<语音id>.ogg，待录制）
 sprite/ bg/ bgm/ se/     运行资产（可后补，缺失时占位）
