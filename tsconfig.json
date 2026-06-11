@@ -6,12 +6,14 @@
     "strict": true,
     "noUncheckedIndexedAccess": false,
     "skipLibCheck": true,
-    "types": ["node"],
+    "resolveJsonModule": true,
+    "types": ["node", "vite/client"],
     "paths": {
       "@vn/core": ["./packages/core/src/index.ts"],
       "@vn/compiler": ["./packages/compiler/src/index.ts"],
-      "@vn/runtime": ["./packages/runtime/src/index.ts"]
+      "@vn/runtime": ["./packages/runtime/src/index.ts"],
+      "@vn/player": ["./packages/player/src/index.ts"]
     }
   },
-  "include": ["packages/*/src/**/*.ts", "packages/*/test/**/*.ts"]
+  "include": ["packages/*/src/**/*.ts", "packages/*/test/**/*.ts", "packages/devtools/*.ts"]
 }

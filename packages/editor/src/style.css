@@ -1,0 +1,173 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #16181f;
+  color: #d4d6dd;
+  font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  font-size: 14px;
+}
+
+#editor-app {
+  display: grid;
+  grid-template-rows: 42px 1fr 160px;
+  grid-template-columns: 200px 1fr minmax(420px, 38%);
+  grid-template-areas:
+    'toolbar toolbar toolbar'
+    'files editor side'
+    'problems problems problems';
+  height: 100%;
+}
+
+/* ---------- 工具栏 ---------- */
+#toolbar {
+  grid-area: toolbar;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  background: #1e2230;
+  border-bottom: 1px solid #2c3144;
+}
+#toolbar .brand {
+  font-weight: 700;
+  color: #8ab4e8;
+  margin-right: 6px;
+}
+#toolbar button {
+  font-size: 13px;
+  padding: 5px 14px;
+  color: #d4d6dd;
+  background: #2a2f42;
+  border: 1px solid #3a4158;
+  border-radius: 6px;
+  cursor: pointer;
+}
+#toolbar button:hover { background: #39405c; }
+#toolbar button.primary { background: #2d5a9e; border-color: #3e6cb0; color: #fff; }
+#toolbar button.primary:hover { background: #366cbd; }
+#toolbar .status {
+  margin-left: auto;
+  font-size: 13px;
+}
+.status .err { color: #ff7878; }
+.status .warn { color: #ffc878; }
+.status .ok { color: #7ddf9a; }
+
+/* ---------- 文件列表 ---------- */
+#files {
+  grid-area: files;
+  overflow-y: auto;
+  background: #1a1d28;
+  border-right: 1px solid #2c3144;
+  padding: 8px 0;
+}
+#files .group {
+  padding: 6px 14px 4px;
+  font-size: 11px;
+  color: #6d7591;
+  letter-spacing: 1px;
+}
+#files .file {
+  padding: 5px 14px 5px 22px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#files .file:hover { background: #242938; }
+#files .file.active { background: #2d3650; color: #fff; }
+#files .file.dirty::after { content: ' ●'; color: #ffc878; font-size: 10px; }
+
+/* ---------- 编辑器 ---------- */
+#editor {
+  grid-area: editor;
+  min-width: 0;
+}
+
+/* ---------- 右侧：预览 / 流程图 ---------- */
+#side {
+  grid-area: side;
+  position: relative;
+  border-left: 1px solid #2c3144;
+  background: #000;
+  min-width: 0;
+}
+#preview {
+  position: absolute;
+  inset: 0;
+  user-select: none;
+}
+#graph {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  background: #161925;
+  display: none;
+}
+#side.graph-mode #preview { display: none; }
+#side.graph-mode #graph { display: block; }
+
+/* 流程图 SVG */
+.g-node rect {
+  fill: #232a40;
+  stroke: #4a5680;
+  stroke-width: 1.5;
+}
+.g-scene { cursor: pointer; }
+.g-scene:hover rect { fill: #2e3a5c; }
+.g-ending rect { fill: #3c2a40; stroke: #8a5680; }
+.g-title { fill: #e8eaf2; font-size: 15px; font-weight: 600; }
+.g-sub { fill: #7d86a8; font-size: 11px; }
+.g-edge { fill: none; stroke: #7d8bb5; stroke-width: 1.5; opacity: 0.8; }
+.g-edge-label { fill: #9aa3c0; font-size: 11px; }
+
+/* ---------- 问题面板 ---------- */
+#problems {
+  grid-area: problems;
+  overflow-y: auto;
+  background: #1a1d28;
+  border-top: 1px solid #2c3144;
+  padding: 6px 0;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 12.5px;
+}
+#problems .p-head {
+  padding: 2px 14px 6px;
+  color: #6d7591;
+  font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+}
+#problems .p-item {
+  padding: 2px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#problems .p-item:hover { background: #242938; }
+#problems .sev-error { color: #ff8585; }
+#problems .sev-warning { color: #ffc878; }
+#problems .sev-info { color: #7da7df; }
+#problems .p-loc { color: #6d7591; margin-right: 8px; }
+
+/* 预览占位提示 */
+.preview-msg {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6d7591;
+  font-size: 15px;
+  white-space: pre-line;
+  text-align: center;
+  line-height: 2;
+}

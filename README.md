@@ -12,11 +12,12 @@
 - [x] JSON Schema + 编译器（语义 linter、语音三向核对、IR 输出、台本/立绘清单导出、assign-ids）
 - [x] 无头运行时 VM + 剧情测试（确定性随机、存读档、结局可达）
 - [x] Web 播放器 UI（占位渲染、缺失资产 HUD、语音/打字机差异化推进、存读档、YAML 热刷新）
-- [ ] 编辑器（Monaco + Schema 补全 + 实时预览）
+- [x] 编辑器（Monaco + Schema 补全、未保存缓冲区实时语义诊断、内嵌预览、剧情流程图）
 
 ## 常用命令
 
 ```
+npm run editor                    启动编辑器（http://localhost:5174）
 npm run dev                       启动播放器（http://localhost:5173，改 YAML 自动刷新）
 npm test                          全部测试
 npm run vn -- check               编译检查（资产缺失只警告，照常通过）
@@ -38,5 +39,7 @@ packages/
   core/                  IR 类型、表达式求值、可序列化 PRNG
   compiler/              YAML → 校验/linter → IR；CLI 与各导出；JSON Schema
   runtime/               无头确定性 VM（next/choose/save/load）
-  player/                Web 播放器（Vite；dev 插件现场编译 story/ 并伺服资产）
+  player/                Web 播放器（导出 Game 类，编辑器预览复用）
+  editor/                脚本编辑器（Monaco + monaco-yaml + 实时预览 + 流程图）
+  devtools/              共享 Vite 插件（现场编译、叠加编译、文件读写 API、资产伺服）
 ```

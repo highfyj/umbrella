@@ -1,0 +1,20 @@
+{
+  "name": "@vn/editor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite"
+  },
+  "dependencies": {
+    "@vn/core": "*",
+    "@vn/player": "*",
+    "@vn/runtime": "*",
+    "monaco-editor": "^0.52.0",
+    "monaco-yaml": "^5.2.3"
+  },
+  "devDependencies": {
+    "@vn/compiler": "*",
+    "vite": "^5.4.0"
+  }
+}
