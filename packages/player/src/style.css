@@ -1,0 +1,245 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  user-select: none;
+}
+
+#stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+
+/* ---------- 背景 ---------- */
+#bg {
+  position: absolute;
+  inset: 0;
+  background-color: #111;
+  background-size: cover;
+  background-position: center;
+  transition: background-color 0.5s;
+}
+#bg[data-placeholder]::after {
+  content: '占位背景：' attr(data-placeholder);
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 14px;
+}
+
+/* ---------- 立绘 ---------- */
+#chars {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.char {
+  position: absolute;
+  bottom: 0;
+  height: 78%;
+  width: min(34vw, 420px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  transition: opacity 0.35s;
+}
+.char[data-at='left'] { left: 12%; transform: translateX(-50%); }
+.char[data-at='center'] { left: 50%; transform: translateX(-50%); }
+.char[data-at='right'] { left: 88%; transform: translateX(-50%); }
+.sprite-img {
+  max-height: 100%;
+  max-width: 100%;
+  object-fit: contain;
+}
+.sprite-placeholder {
+  width: 70%;
+  height: 92%;
+  border-radius: 45% 45% 0 0 / 18% 18% 0 0;
+  position: relative;
+  opacity: 0.9;
+}
+.sprite-label {
+  position: absolute;
+  top: 18%;
+  width: 100%;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 15px;
+  white-space: pre-line;
+  line-height: 1.6;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+/* ---------- 对话框 ---------- */
+#dialogue {
+  position: absolute;
+  left: 50%;
+  bottom: 3%;
+  transform: translateX(-50%);
+  width: min(92%, 1080px);
+  min-height: 148px;
+  background: linear-gradient(180deg, rgba(8, 10, 22, 0.82), rgba(8, 10, 22, 0.92));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 16px 28px 22px;
+  color: #f0f0f0;
+  backdrop-filter: blur(6px);
+}
+#speaker {
+  font-size: 19px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  min-height: 24px;
+}
+#text {
+  font-size: 19px;
+  line-height: 1.8;
+  letter-spacing: 0.5px;
+  min-height: 68px;
+}
+#adv {
+  position: absolute;
+  right: 20px;
+  bottom: 12px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.5);
+  animation: blink 1.2s infinite;
+  visibility: hidden;
+}
+#adv.on { visibility: visible; }
+@keyframes blink {
+  50% { opacity: 0.2; }
+}
+.voice-badge {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 12px;
+  color: rgba(255, 200, 120, 0.8);
+  border: 1px solid rgba(255, 200, 120, 0.4);
+  border-radius: 4px;
+  padding: 0 5px;
+  vertical-align: middle;
+}
+
+/* ---------- 选项 ---------- */
+#choices {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: rgba(0, 0, 0, 0.35);
+}
+#choices.on { display: flex; }
+.choice-btn {
+  width: min(70%, 560px);
+  padding: 14px 24px;
+  font-size: 18px;
+  color: #fff;
+  background: rgba(20, 26, 48, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+}
+.choice-btn:hover {
+  background: rgba(60, 76, 130, 0.95);
+  transform: scale(1.02);
+}
+
+/* ---------- 菜单与 HUD ---------- */
+#menu {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  gap: 8px;
+  z-index: 5;
+}
+#menu button {
+  font-size: 13px;
+  padding: 5px 12px;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  cursor: pointer;
+}
+#menu button:hover { background: rgba(255, 255, 255, 0.15); }
+
+#hud {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  max-width: 320px;
+  max-height: 45%;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 180, 80, 0.35);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: rgba(255, 210, 150, 0.9);
+  z-index: 5;
+  display: none;
+}
+#hud.on { display: block; }
+#hud .hud-title {
+  font-weight: 600;
+  color: #ffc878;
+}
+
+/* ---------- 结局卡 / 错误页 ---------- */
+#endcard {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  background: rgba(0, 0, 0, 0.82);
+  color: #fff;
+  z-index: 10;
+}
+#endcard.on { display: flex; }
+#endcard h1 { font-size: 34px; font-weight: 600; letter-spacing: 4px; }
+#endcard .ending-id { color: rgba(255, 255, 255, 0.45); font-size: 14px; }
+#endcard button {
+  font-size: 17px;
+  padding: 10px 36px;
+  color: #fff;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 24px;
+  cursor: pointer;
+}
+#endcard button:hover { background: rgba(255, 255, 255, 0.15); }
+
+.error-page {
+  padding: 40px;
+  color: #ff9090;
+  font-size: 15px;
+  line-height: 2;
+  white-space: pre-wrap;
+  font-family: Consolas, monospace;
+  overflow: auto;
+  height: 100%;
+}
+.error-page h2 { color: #ff6060; margin-bottom: 16px; }

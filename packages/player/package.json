@@ -1,0 +1,17 @@
+{
+  "name": "@vn/player",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite"
+  },
+  "dependencies": {
+    "@vn/core": "*",
+    "@vn/runtime": "*"
+  },
+  "devDependencies": {
+    "@vn/compiler": "*",
+    "vite": "^5.4.0"
+  }
+}

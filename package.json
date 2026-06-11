@@ -8,7 +8,8 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "vn": "tsx packages/compiler/src/cli.ts"
+    "vn": "tsx packages/compiler/src/cli.ts",
+    "dev": "vite packages/player"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

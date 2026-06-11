@@ -11,12 +11,13 @@
 - [x] 样例剧本（1 个分支点小选择 + 1 个路线分支 + 2 个结局）：[story/](story/)
 - [x] JSON Schema + 编译器（语义 linter、语音三向核对、IR 输出、台本/立绘清单导出、assign-ids）
 - [x] 无头运行时 VM + 剧情测试（确定性随机、存读档、结局可达）
-- [ ] Web 播放器 UI（占位渲染 + 缺失资产 HUD）
+- [x] Web 播放器 UI（占位渲染、缺失资产 HUD、语音/打字机差异化推进、存读档、YAML 热刷新）
 - [ ] 编辑器（Monaco + Schema 补全 + 实时预览）
 
 ## 常用命令
 
 ```
+npm run dev                       启动播放器（http://localhost:5173，改 YAML 自动刷新）
 npm test                          全部测试
 npm run vn -- check               编译检查（资产缺失只警告，照常通过）
 npm run vn -- compile             输出 build/story.ir.json
@@ -37,4 +38,5 @@ packages/
   core/                  IR 类型、表达式求值、可序列化 PRNG
   compiler/              YAML → 校验/linter → IR；CLI 与各导出；JSON Schema
   runtime/               无头确定性 VM（next/choose/save/load）
+  player/                Web 播放器（Vite；dev 插件现场编译 story/ 并伺服资产）
 ```
