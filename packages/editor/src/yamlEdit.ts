@@ -45,6 +45,27 @@ export function registerVariant(
   })
 }
 
+/** characters.yaml：新增角色 */
+export function addCharacter(model: Model, c: { name: string; color?: string; voiced: boolean }): void {
+  editYamlModel(model, (doc) => {
+    if (doc.getIn(['characters', c.name]) !== undefined) return
+    const def: Record<string, unknown> = {}
+    if (c.color) def.color = c.color
+    if (!c.voiced) def.voiced = false
+    doc.setIn(['characters', c.name], doc.createNode(def))
+  })
+}
+
+/** characters.yaml：确保角色有 sprite.default（注册首个变体时需要） */
+export function ensureSpriteDefault(model: Model, char: string, outfit: string, face: string): void {
+  editYamlModel(model, (doc) => {
+    if (doc.getIn(['characters', char, 'sprite', 'default']) !== undefined) return
+    const node = doc.createNode({ outfit, face })
+    ;(node as { flow?: boolean }).flow = true
+    doc.setIn(['characters', char, 'sprite', 'default'], node)
+  })
+}
+
 /** characters.yaml：关联 AI 出图参考立绘 */
 export function addRef(model: Model, char: string, path: string): void {
   editYamlModel(model, (doc) => {

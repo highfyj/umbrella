@@ -24,6 +24,9 @@ interface LockEntry {
   duration_ms?: number
 }
 
+/** 语音文件支持的扩展名（按优先级）；TTS 输出 wav 时无需转码也能直接用 */
+export const VOICE_EXTS = ['.ogg', '.mp3', '.wav', '.m4a'] as const
+
 export function textHash(text: string): string {
   return createHash('sha1').update(text, 'utf8').digest('hex').slice(0, 12)
 }
@@ -83,10 +86,18 @@ export function resolveVoice(
         }
       }
 
-      // 文件按约定路径绑定：voice/<id 的场景前缀部分>/<id>.ogg
+      // 文件按约定路径绑定：voice/<id 的场景前缀部分>/<id>.<ext>，多扩展名按序探测
       const dir = id.replace(/_\d+$/, '')
-      const file = `voice/${dir}/${id}.ogg`
-      const missing = !files.exists(file)
+      let file = `voice/${dir}/${id}.ogg`
+      let missing = true
+      for (const ext of VOICE_EXTS) {
+        const cand = `voice/${dir}/${id}${ext}`
+        if (files.exists(cand)) {
+          file = cand
+          missing = false
+          break
+        }
+      }
       const entry = lock[id]
       let stale = false
       if (missing) {

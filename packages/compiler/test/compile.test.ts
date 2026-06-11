@@ -212,6 +212,14 @@ steps:
     expect(trap?.message).toContain('true/false')
   })
 
+  it('语音文件多扩展名：wav 也能被识别为已录', () => {
+    const files = minimalProject({ 'voice/s1/s1_0010.wav': 'fake-audio-bytes' })
+    const r = compileProject(files)
+    expect(r.voiceLines).toHaveLength(1)
+    expect(r.voiceLines[0].missing).toBe(false)
+    expect(r.voiceLines[0].file).toBe('voice/s1/s1_0010.wav')
+  })
+
   it('production 编辑素材：缺文件只提示（info），不进 IR', () => {
     const r = compileProject(
       minimalProject({

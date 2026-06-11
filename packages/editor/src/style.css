@@ -300,3 +300,95 @@ body,
 .cursor-preview .cp-title { font-weight: 600; margin-bottom: 4px; }
 .cursor-preview .cp-missing { color: #ffc878; margin-top: 4px; }
 .cursor-preview .cp-detail { color: #8a93b0; margin-top: 4px; max-width: 240px; white-space: normal; }
+
+/* ---------- 通用模态框 ---------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal {
+  width: min(92vw, 480px);
+  max-height: 86vh;
+  overflow-y: auto;
+  background: #20242f;
+  border: 1px solid #3a4158;
+  border-radius: 12px;
+  padding: 18px 20px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+}
+.modal .m-title { font-size: 16px; font-weight: 600; margin-bottom: 14px; }
+.modal .m-field { margin-bottom: 10px; }
+.modal .m-field label { display: block; font-size: 12px; color: #9aa3c0; margin-bottom: 4px; }
+.modal .m-field input[type='text'],
+.modal .m-field input[type='number'],
+.modal .m-field textarea,
+.modal .m-field select {
+  width: 100%;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: #e8eaf2;
+  background: #161925;
+  border: 1px solid #3a4158;
+  border-radius: 6px;
+  font-family: inherit;
+}
+.modal .m-field textarea { resize: vertical; }
+.modal .m-check label { display: flex; align-items: center; gap: 6px; color: #d4d6dd; font-size: 13px; }
+.modal .m-hint { font-size: 11px; color: #6d7591; margin-top: 3px; }
+.modal .m-status { min-height: 18px; font-size: 12.5px; margin: 8px 0; }
+.modal .m-status audio { width: 100%; margin-top: 6px; height: 34px; }
+.modal .m-ok { color: #7ddf9a; }
+.modal .m-err { color: #ff8585; }
+.modal .m-footer { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
+.modal .m-spacer { flex: 1; }
+.modal .m-footer button {
+  font-size: 13px;
+  padding: 6px 16px;
+  color: #d4d6dd;
+  background: #2a2f42;
+  border: 1px solid #3a4158;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.modal .m-footer button:hover { background: #39405c; }
+.modal .m-footer button.primary { background: #2d5a9e; border-color: #3e6cb0; color: #fff; }
+.modal .m-footer button.primary:hover { background: #366cbd; }
+
+/* ---------- 右键菜单 ---------- */
+#ctx-menu {
+  position: fixed;
+  min-width: 160px;
+  background: #20242f;
+  border: 1px solid #3a4158;
+  border-radius: 8px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.55);
+  padding: 4px;
+  z-index: 90;
+  display: none;
+}
+#ctx-menu.on { display: block; }
+#ctx-menu .ctx-item {
+  padding: 6px 14px;
+  font-size: 13px;
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#ctx-menu .ctx-item:hover { background: #2d3650; }
+
+/* 资产分节"＋"按钮 */
+.asset-head .a-add {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  color: #7da7df;
+  border: 1px solid #3a4158;
+  border-radius: 4px;
+  font-style: normal;
+}
+.asset-head .a-add:hover { background: #2d3650; color: #fff; }

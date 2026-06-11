@@ -6,27 +6,28 @@ import {
   type AssetIndex,
   type CharacterView,
 } from './assetIndex.js'
-import { addRef, registerAsset, registerVariant, setTtsSample, type YamlModel } from './yamlEdit.js'
+import { showModal } from './modal.js'
+import { loadTtsSettings, openTtsSettings, pathForMode } from './ttsSettings.js'
+import { addCharacter, addRef, ensureSpriteDefault, registerAsset, registerVariant, setTtsSample, type YamlModel } from './yamlEdit.js'
 import type { StoryIR } from '@vn/core'
 
 export interface AssetPanelHost {
   getIr(): StoryIR | null
-  /** 确保 YAML model 已加载（不切换编辑器） */
   ensureModel(path: string): Promise<YamlModel>
-  /** 在脚本光标处插入一个步骤行 */
   insertStep(snippet: string): void
   openFile(path: string): void
-  /** 注册动作之后触发（重编译 + 刷新面板） */
   onMutated(): void
 }
 
-/** 拖拽载荷：drop 处理器按整行步骤插入 */
+type Action = [label: string, run: () => void | Promise<void>]
+
 export const DRAG_MIME = 'text/plain'
 
 export class AssetPanel {
   private index: AssetIndex | null = null
   private collapsed = new Set<string>()
   private previewEl: HTMLElement
+  private menuEl: HTMLElement
 
   constructor(
     private container: HTMLElement,
@@ -35,10 +36,17 @@ export class AssetPanel {
     this.previewEl = document.createElement('div')
     this.previewEl.id = 'asset-preview'
     document.body.appendChild(this.previewEl)
+    this.menuEl = document.createElement('div')
+    this.menuEl.id = 'ctx-menu'
+    document.body.appendChild(this.menuEl)
     document.addEventListener('click', (e) => {
+      this.menuEl.classList.remove('on')
       if (!this.previewEl.contains(e.target as Node) && !this.container.contains(e.target as Node)) {
         this.hidePreview()
       }
+    })
+    document.addEventListener('contextmenu', (e) => {
+      if (!this.container.contains(e.target as Node)) this.menuEl.classList.remove('on')
     })
   }
 
@@ -60,7 +68,7 @@ export class AssetPanel {
     const idx = this.index!
     const html: string[] = [`<div class="asset-toolbar"><button data-act="refresh">↻ 刷新</button></div>`]
 
-    html.push(this.section('背景', 'bg', [
+    html.push(this.section('背景', 'bg', true, [
       ...idx.backgrounds.map((a) =>
         this.item({
           icon: '🖼', label: a.name, sub: a.file, badge: a.missing ? '缺文件' : '',
@@ -72,34 +80,38 @@ export class AssetPanel {
       ),
     ]))
 
-    html.push(this.section('立绘', 'sprite', idx.characters.filter((c) => c.variants.length || c.unregisteredSprites.length).map((c) => this.charSprites(c)).flat()
+    html.push(this.section('立绘', 'sprite', true, idx.characters.filter((c) => c.variants.length || c.unregisteredSprites.length).map((c) => this.charSprites(c)).flat()
       .concat(idx.loose.sprite.map((f) => this.item({ icon: '＋', label: f, sub: '未注册（目录未关联角色）', cls: 'unreg', data: { kind: 'loose-sprite-orphan', file: f } })))))
 
-    html.push(this.section('BGM', 'bgm', [
+    html.push(this.section('BGM', 'bgm', true, [
       ...idx.bgm.map((a) =>
         this.item({ icon: '♫', label: a.name, sub: a.file, badge: a.missing ? '缺文件' : '', drag: `bgm: ${a.name}`, data: { kind: 'bgm', name: a.name, file: a.file, missing: String(a.missing) } }),
       ),
       ...idx.loose.bgm.map((f) => this.item({ icon: '＋', label: f.split('/').pop()!, sub: '未注册', cls: 'unreg', data: { kind: 'loose-bgm', file: f } })),
     ]))
 
-    html.push(this.section('音效', 'se', [
+    html.push(this.section('音效', 'se', true, [
       ...idx.se.map((a) =>
         this.item({ icon: '♪', label: a.name, sub: a.file, badge: a.missing ? '缺文件' : '', drag: `se: ${a.name}`, data: { kind: 'se', name: a.name, file: a.file, missing: String(a.missing) } }),
       ),
       ...idx.loose.se.map((f) => this.item({ icon: '＋', label: f.split('/').pop()!, sub: '未注册', cls: 'unreg', data: { kind: 'loose-se', file: f } })),
     ]))
 
-    html.push(this.section('语音', 'voice', idx.voice.map((v) => {
+    html.push(this.section('语音', 'voice', false, idx.voice.map((v) => {
       const done = v.lines.filter((l) => l.exists).length
       return [
         `<div class="asset-subhead">${esc(v.scene)}（${done}/${v.lines.length} 已录）</div>`,
         ...v.lines.map((l) =>
-          this.item({ icon: l.exists ? '◉' : '○', label: l.id, sub: l.exists ? '已录' : '待录', cls: l.exists ? '' : 'unreg', data: { kind: 'voice', file: l.file, missing: String(!l.exists) } }),
+          this.item({
+            icon: l.exists ? '◉' : '○', label: l.id, sub: `${l.who}：${l.text}`, cls: l.exists ? '' : 'unreg',
+            badge: l.exists ? '' : '待录',
+            data: { kind: 'voice', file: l.file, missing: String(!l.exists), id: l.id, who: l.who, text: l.text },
+          }),
         ),
       ].join('')
     })))
 
-    html.push(this.section('编辑素材', 'production', [
+    html.push(this.section('编辑素材', 'production', false, [
       ...idx.characters.filter((c) => c.refs.length || c.tts).map((c) => this.charProduction(c)).flat(),
       ...idx.loose.refs.map((f) =>
         this.item({ icon: '🎨', label: f.replace('production/refs/', ''), sub: '参考图 · 未关联', cls: 'unreg', data: { kind: 'loose-ref', file: f } }),
@@ -120,7 +132,7 @@ export class AssetPanel {
         this.item({
           icon: '◩', label: `${v.outfit} / ${v.state.join('+') || '－'} / ${v.face}`, sub: v.file, badge: v.missing ? '缺图' : '',
           drag: `show: { who: ${c.name}${v.outfit ? `, outfit: ${v.outfit}` : ''}${v.state.length ? `, state: [${v.state.join(', ')}]` : ''}, face: ${v.face} }`,
-          data: { kind: 'variant', who: c.name, file: v.missing ? '' : v.file, combo: v.combo, outfit: v.outfit, state: v.state.join('+'), face: v.face },
+          data: { kind: 'variant', who: c.name, file: v.missing ? '' : v.file, combo: v.combo, missing: String(v.missing) },
         }),
       ),
       ...c.unregisteredSprites.map((f) =>
@@ -141,11 +153,14 @@ export class AssetPanel {
     return rows
   }
 
-  private section(title: string, key: string, items: string[]): string {
+  private section(title: string, key: string, addable: boolean, items: string[]): string {
     const closed = this.collapsed.has(key)
     return `
       <div class="asset-section">
-        <div class="asset-head" data-sec="${key}">${closed ? '▸' : '▾'} ${title}<span class="count">${items.length}</span></div>
+        <div class="asset-head" data-sec="${key}">${closed ? '▸' : '▾'} ${title}
+          ${addable ? `<span class="a-add" data-add="${key}" title="新增">＋</span>` : ''}
+          <span class="count">${items.length}</span>
+        </div>
         <div class="asset-items" ${closed ? 'hidden' : ''}>${items.join('') || '<div class="asset-empty">（空）</div>'}</div>
       </div>`
   }
@@ -175,7 +190,11 @@ export class AssetPanel {
   private bind(): void {
     this.container.querySelector('[data-act="refresh"]')?.addEventListener('click', () => void this.refresh())
     for (const head of this.container.querySelectorAll<HTMLElement>('.asset-head')) {
-      head.addEventListener('click', () => {
+      head.addEventListener('click', (e) => {
+        if ((e.target as HTMLElement).dataset.add) {
+          void this.openAdd((e.target as HTMLElement).dataset.add!)
+          return
+        }
         const key = head.dataset.sec!
         if (this.collapsed.has(key)) this.collapsed.delete(key)
         else this.collapsed.add(key)
@@ -184,6 +203,10 @@ export class AssetPanel {
     }
     for (const el of this.container.querySelectorAll<HTMLElement>('.asset-item')) {
       el.addEventListener('click', () => this.showPreview(el))
+      el.addEventListener('contextmenu', (e) => {
+        e.preventDefault()
+        this.showMenu(el, e.clientX, e.clientY)
+      })
       if (el.dataset.drag) {
         el.addEventListener('dragstart', (e) => {
           e.dataTransfer?.setData(DRAG_MIME, el.dataset.drag!)
@@ -193,21 +216,15 @@ export class AssetPanel {
     }
   }
 
-  /** 预览浮窗：图片/音频 + 上下文相关动作 */
-  private showPreview(el: HTMLElement): void {
+  /** 该资产项可用的动作（预览浮窗与右键菜单共用） */
+  private actionsFor(el: HTMLElement): Action[] {
     const d = el.dataset
-    const file = d.file ?? ''
-    const missing = d.missing === 'true' || !file
-    const parts: string[] = [`<div class="ap-title">${esc(d.name ?? d.combo ?? file.split('/').pop() ?? '')}</div>`]
-
-    if (!missing && isImage(file)) parts.push(`<img src="${encodeURI('/' + file)}" alt="">`)
-    else if (!missing && isAudio(file)) parts.push(`<audio controls src="${encodeURI('/' + file)}"></audio>`)
-    else if (missing) parts.push(`<div class="ap-missing">文件不存在${file ? `：${esc(file)}` : ''}<br>（游戏内将占位渲染）</div>`)
-    if (file) parts.push(`<div class="ap-path">${esc(file)}</div>`)
-
-    const actions: Array<[string, () => void | Promise<void>]> = []
     const kind = d.kind!
-    if (d.drag) actions.push(['插入到脚本', () => this.host.insertStep(d.drag!.startsWith('-') ? d.drag! : d.drag!)])
+    const actions: Action[] = []
+    if (d.drag) actions.push(['插入到脚本', () => this.host.insertStep(d.drag!)])
+    if (kind === 'voice') {
+      actions.push([d.missing === 'true' ? 'TTS 生成…' : 'TTS 重新生成/替换…', () => this.ttsFlow(d)])
+    }
     if (kind === 'loose-bg') actions.push(['注册为背景', () => this.registerLoose('backgrounds', d.file!)])
     if (kind === 'loose-bgm') actions.push(['注册为 BGM', () => this.registerLoose('bgm', d.file!)])
     if (kind === 'loose-se') actions.push(['注册为音效', () => this.registerLoose('se', d.file!)])
@@ -216,7 +233,36 @@ export class AssetPanel {
     if (kind === 'loose-ref') actions.push(['关联到角色…', () => this.associateRef(d.file!)])
     if (kind === 'loose-tts') actions.push(['设为角色音色…', () => this.associateTts(d.file!)])
     if (kind === 'tts' || kind === 'ref') actions.push(['打开 characters.yaml', () => this.host.openFile('story/characters.yaml')])
+    return actions
+  }
 
+  private showMenu(el: HTMLElement, x: number, y: number): void {
+    const actions: Action[] = [['预览', () => this.showPreview(el)], ...this.actionsFor(el)]
+    this.menuEl.innerHTML = actions.map(([label], i) => `<div class="ctx-item" data-i="${i}">${esc(label)}</div>`).join('')
+    this.menuEl.classList.add('on')
+    this.menuEl.style.left = `${Math.min(x, window.innerWidth - 200)}px`
+    this.menuEl.style.top = `${Math.min(y, window.innerHeight - actions.length * 30 - 10)}px`
+    this.menuEl.querySelectorAll<HTMLElement>('.ctx-item').forEach((item) => {
+      item.addEventListener('click', () => {
+        this.menuEl.classList.remove('on')
+        void actions[Number(item.dataset.i)][1]()
+      })
+    })
+  }
+
+  private showPreview(el: HTMLElement): void {
+    const d = el.dataset
+    const file = d.file ?? ''
+    const missing = d.missing === 'true' || !file
+    const parts: string[] = [`<div class="ap-title">${esc(d.name ?? d.id ?? d.combo ?? file.split('/').pop() ?? '')}</div>`]
+
+    if (!missing && isImage(file)) parts.push(`<img src="${encodeURI('/' + file)}" alt="">`)
+    else if (!missing && isAudio(file)) parts.push(`<audio controls src="${encodeURI('/' + file)}?t=${Date.now()}"></audio>`)
+    else if (missing) parts.push(`<div class="ap-missing">文件不存在${file ? `：${esc(file)}` : ''}<br>（游戏内将占位渲染）</div>`)
+    if (d.kind === 'voice') parts.push(`<div class="ap-path">${esc(d.who ?? '')}：${esc(d.text ?? '')}</div>`)
+    if (file) parts.push(`<div class="ap-path">${esc(file)}</div>`)
+
+    const actions = this.actionsFor(el)
     parts.push(
       `<div class="ap-actions">${actions.map(([label], i) => `<button data-i="${i}">${esc(label)}</button>`).join('')}</div>`,
     )
@@ -237,54 +283,207 @@ export class AssetPanel {
     this.previewEl.querySelector('audio')?.pause()
   }
 
-  // ---------- 注册动作（写回 YAML model，保存后落盘） ----------
+  // ---------- TTS 生成流程：设置内容 → 调 API → 试听 → 保存/替换 ----------
+
+  private async ttsFlow(d: DOMStringMap): Promise<void> {
+    const settings = loadTtsSettings()
+    const cv = this.index?.characters.find((c) => c.name === d.who)
+    const params = (cv?.tts?.params ?? {}) as Record<string, unknown>
+    const previewRef: { current: { path: string; durationMs: number | null } | null } = { current: null }
+
+    const result = await showModal({
+      title: `TTS 生成：${d.id}（${d.who}）`,
+      submitLabel: '保存/替换',
+      fields: [
+        { key: 'text', label: '台词文本', type: 'textarea', value: d.text ?? '', hint: '可微调读法（如插入逗号控制停顿）；存档的改稿检测以脚本原文为准' },
+        { key: 'mode', label: '生成模式', type: 'select', value: String(params.mode ?? settings.mode), options: ['zero_shot', 'sft', 'instruct'] },
+        { key: 'promptText', label: 'prompt 文本（zero_shot）', value: String(params.prompt_text ?? ''), hint: '音色参考音频对应的文字内容' },
+        { key: 'spkId', label: '说话人 id（sft）', value: String(params.spk_id ?? '') },
+        { key: 'instruct', label: '指令（instruct）', value: String(params.instruct ?? ''), placeholder: '如：用开心的语气说' },
+        { key: 'speed', label: '语速', type: 'number', value: String(params.speed ?? 1.0) },
+        { key: 'sample', label: '音色参考音频', value: cv?.tts?.sample ?? '', hint: cv?.tts?.sample ? (cv.tts.sampleExists ? '' : '⚠ 该文件不存在') : '未配置：在资产面板"编辑素材"里给角色设音色' },
+      ],
+      actions: [
+        {
+          label: '⚙ 接入设置',
+          handler: async (_v, statusEl) => {
+            await openTtsSettings()
+            statusEl.textContent = '设置已更新（生成时生效）'
+          },
+        },
+        {
+          label: '▶ 生成试听',
+          handler: async (v, statusEl) => {
+            statusEl.innerHTML = '生成中…（首次调用模型可能较慢）'
+            const s = loadTtsSettings()
+            const mode = v.mode as 'zero_shot' | 'sft' | 'instruct'
+            try {
+              const r = (await (
+                await fetch('/api/tts/generate', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                  body: JSON.stringify({
+                    baseUrl: s.baseUrl,
+                    mode,
+                    path: pathForMode({ ...s, mode }),
+                    sampleRate: s.sampleRate,
+                    toOgg: s.toOgg,
+                    text: v.text,
+                    promptText: v.promptText,
+                    spkId: v.spkId,
+                    instruct: v.instruct,
+                    speed: Number(v.speed) || undefined,
+                    sample: v.sample || undefined,
+                    previewName: d.id,
+                  }),
+                })
+              ).json()) as { ok: boolean; preview?: string; durationMs?: number | null; error?: string }
+              if (!r.ok) {
+                statusEl.innerHTML = `<span class="m-err">${esc(r.error ?? '生成失败')}</span>`
+                return
+              }
+              previewRef.current = { path: r.preview!, durationMs: r.durationMs ?? null }
+              statusEl.innerHTML = `<span class="m-ok">✓ 生成成功${r.durationMs ? `（${(r.durationMs / 1000).toFixed(1)}s）` : ''}</span><br><audio controls autoplay src="/${r.preview}?t=${Date.now()}"></audio>`
+            } catch (err) {
+              statusEl.innerHTML = `<span class="m-err">请求失败：${String(err)}</span>`
+            }
+          },
+        },
+      ],
+      validate: () => (previewRef.current ? null : '请先"生成试听"，确认效果后再保存'),
+    })
+    const preview = previewRef.current
+    if (!result || !preview) return
+
+    const commit = (await (
+      await fetch('/api/tts/commit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        // text 用脚本原文（d.text）：voice.lock 的改稿检测必须对照脚本，而非微调后的读法文本
+        body: JSON.stringify({ preview: preview.path, id: d.id, text: d.text, durationMs: preview.durationMs }),
+      })
+    ).json()) as { ok: boolean; file?: string; error?: string }
+    if (commit.ok) this.host.onMutated()
+    else alert(`保存失败：${commit.error}`)
+  }
+
+  // ---------- 新增（注册表条目） ----------
+
+  private async openAdd(section: string): Promise<void> {
+    if (section === 'bg' || section === 'bgm' || section === 'se') {
+      const kindMap = { bg: 'backgrounds', bgm: 'bgm', se: 'se' } as const
+      const labelMap = { bg: '背景', bgm: 'BGM', se: '音效' }
+      const dirMap = { bg: 'bg/', bgm: 'bgm/', se: 'se/' }
+      const v = await showModal({
+        title: `新增${labelMap[section]}`,
+        fields: [
+          { key: 'name', label: '注册名（脚本中引用）', placeholder: '如 教室_白天' },
+          { key: 'file', label: '文件路径', placeholder: `${dirMap[section]}xxx.${section === 'bg' ? 'jpg' : 'ogg'}`, hint: '文件可以后补：缺失时游戏内占位渲染' },
+        ],
+        validate: (v) => (!v.name ? '注册名必填' : !v.file.startsWith(dirMap[section]) ? `文件路径需以 ${dirMap[section]} 开头` : null),
+      })
+      if (!v) return
+      registerAsset(await this.host.ensureModel('story/assets.yaml'), kindMap[section], v.name, v.file)
+      this.host.onMutated()
+      return
+    }
+    if (section === 'sprite') {
+      const NEW = '〈新建角色〉'
+      const names = this.index!.characters.map((c) => c.name)
+      const v = await showModal({
+        title: '新增立绘变体 / 角色',
+        fields: [
+          { key: 'who', label: '角色', type: 'select', value: names[0] ?? NEW, options: [...names, NEW] },
+          { key: 'newName', label: '新角色名（选〈新建角色〉时生效）' },
+          { key: 'color', label: '新角色名字颜色', placeholder: '#e8748a' },
+          { key: 'voiced', label: '新角色配音', type: 'checkbox', value: true },
+          { key: 'outfit', label: 'outfit 衣着', placeholder: '如 校服' },
+          { key: 'state', label: 'state 状态（可空，多个用+连接）', placeholder: '如 淋湿' },
+          { key: 'face', label: 'face 表情', placeholder: '如 默认' },
+          { key: 'file', label: '图片路径（sprite/ 下）', placeholder: 'xiaoman/seifuku_normal.png', hint: '留空 = 只建角色不加变体；文件可后补' },
+        ],
+        validate: (v) => {
+          const isNew = v.who === NEW
+          if (isNew && !v.newName) return '请填写新角色名'
+          if (v.file && (!v.outfit || !v.face)) return '加变体时 outfit 与 face 必填'
+          if (!isNew && !v.file) return '已有角色请填写变体信息'
+          return null
+        },
+      })
+      if (!v) return
+      const model = await this.host.ensureModel('story/characters.yaml')
+      const who = v.who === NEW ? v.newName : v.who
+      if (v.who === NEW) addCharacter(model, { name: who, color: v.color || undefined, voiced: v.voiced === 'true' })
+      if (v.file) {
+        ensureSpriteDefault(model, who, v.outfit, v.face)
+        registerVariant(model, who, {
+          outfit: v.outfit,
+          state: v.state ? v.state.split('+').map((s) => s.trim()).filter(Boolean) : [],
+          face: v.face,
+          file: v.file.startsWith('sprite/') ? v.file : `sprite/${v.file}`,
+        })
+      }
+      this.host.onMutated()
+    }
+  }
+
+  // ---------- 注册动作 ----------
 
   private async registerLoose(kind: 'backgrounds' | 'bgm' | 'se', file: string): Promise<void> {
-    const name = prompt('注册名（脚本中引用的名字）：', suggestName(file))
-    if (!name) return
-    registerAsset(await this.host.ensureModel('story/assets.yaml'), kind, name, file)
+    const v = await showModal({
+      title: `注册 ${file}`,
+      fields: [{ key: 'name', label: '注册名（脚本中引用的名字）', value: suggestName(file) }],
+      validate: (v) => (v.name ? null : '注册名必填'),
+    })
+    if (!v) return
+    registerAsset(await this.host.ensureModel('story/assets.yaml'), kind, v.name, file)
     this.host.onMutated()
   }
 
   private async registerSpriteFlow(who: string | null, file: string): Promise<void> {
     const idx = this.index!
-    const char = who ?? prompt(`关联到哪个角色？（${idx.characters.map((c) => c.name).join(' / ')}）`)
-    if (!char) return
-    const cv = idx.characters.find((c) => c.name === char)
-    if (!cv) {
-      alert(`角色 "${char}" 不存在`)
-      return
-    }
-    const ask = (dim: string, options: string[], allowEmpty = false): string | null => {
-      const v = prompt(`${dim}（已有：${options.join(' / ') || '无'}${allowEmpty ? '，留空=无' : ''}）：`, options[0] ?? '')
-      return v === null ? null : v.trim()
-    }
-    const outfit = ask('outfit 衣着', cv.dims.outfit)
-    if (outfit === null || !outfit) return
-    const state = ask('state 状态', cv.dims.state, true)
-    if (state === null) return
-    const face = ask('face 表情', cv.dims.face)
-    if (face === null || !face) return
-    registerVariant(await this.host.ensureModel('story/characters.yaml'), char, {
-      outfit,
-      state: state ? state.split('+').map((s) => s.trim()).filter(Boolean) : [],
-      face,
+    const names = idx.characters.map((c) => c.name)
+    const v = await showModal({
+      title: `注册变体：${file}`,
+      fields: [
+        { key: 'who', label: '角色', type: 'select', value: who ?? names[0], options: names },
+        { key: 'outfit', label: 'outfit 衣着', placeholder: '如 校服' },
+        { key: 'state', label: 'state 状态（可空，多个用+连接）' },
+        { key: 'face', label: 'face 表情', placeholder: '如 微笑' },
+      ],
+      validate: (v) => (!v.outfit || !v.face ? 'outfit 与 face 必填' : null),
+    })
+    if (!v) return
+    const model = await this.host.ensureModel('story/characters.yaml')
+    ensureSpriteDefault(model, v.who, v.outfit, v.face)
+    registerVariant(model, v.who, {
+      outfit: v.outfit,
+      state: v.state ? v.state.split('+').map((s) => s.trim()).filter(Boolean) : [],
+      face: v.face,
       file,
     })
     this.host.onMutated()
   }
 
   private async associateRef(file: string): Promise<void> {
-    const char = prompt(`参考图关联到哪个角色？（${this.index!.characters.map((c) => c.name).join(' / ')}）`)
-    if (!char) return
-    addRef(await this.host.ensureModel('story/characters.yaml'), char, file)
+    const names = this.index!.characters.map((c) => c.name)
+    const v = await showModal({
+      title: `参考图关联：${file}`,
+      fields: [{ key: 'who', label: '关联到角色', type: 'select', value: names[0], options: names }],
+    })
+    if (!v) return
+    addRef(await this.host.ensureModel('story/characters.yaml'), v.who, file)
     this.host.onMutated()
   }
 
   private async associateTts(file: string): Promise<void> {
-    const char = prompt(`音色设给哪个角色？（${this.index!.characters.map((c) => c.name).join(' / ')}）`)
-    if (!char) return
-    setTtsSample(await this.host.ensureModel('story/characters.yaml'), char, file)
+    const names = this.index!.characters.map((c) => c.name)
+    const v = await showModal({
+      title: `设为音色参考：${file}`,
+      fields: [{ key: 'who', label: '设给角色', type: 'select', value: names[0], options: names }],
+    })
+    if (!v) return
+    setTtsSample(await this.host.ensureModel('story/characters.yaml'), v.who, file)
     this.host.onMutated()
   }
 }

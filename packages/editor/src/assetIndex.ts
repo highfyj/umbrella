@@ -35,6 +35,8 @@ export interface VoiceLineView {
   id: string
   file: string
   exists: boolean
+  who: string
+  text: string
 }
 
 export interface AssetIndex {
@@ -145,7 +147,7 @@ export function buildAssetIndex(scan: ScanResult, ir: StoryIR, charactersYamlTex
           list = []
           voiceByScene.set(sceneId, list)
         }
-        list.push({ id: op.voice.id, file: op.voice.file, exists: disk.has(op.voice.file) })
+        list.push({ id: op.voice.id, file: op.voice.file, exists: disk.has(op.voice.file), who: op.who, text: op.text })
       }
     }
   }

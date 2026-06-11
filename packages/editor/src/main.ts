@@ -5,6 +5,7 @@ import type { StoryIR } from '@vn/core'
 import { renderGraph } from './graph.js'
 import { AssetPanel, DRAG_MIME } from './assetPanel.js'
 import { CursorPreview } from './cursorPreview.js'
+import { openTtsSettings } from './ttsSettings.js'
 
 interface Diag {
   severity: 'error' | 'warning' | 'info'
@@ -27,6 +28,7 @@ app.innerHTML = `
       <button id="btn-save" class="primary" title="Ctrl+S">保存并更新预览</button>
       <button id="btn-restart">重启预览</button>
       <button id="btn-view">流程图</button>
+      <button id="btn-tts">TTS 设置</button>
       <span class="status" id="status">就绪</span>
     </div>
     <aside id="sidebar">
@@ -322,6 +324,7 @@ new CursorPreview(editor, () => lastGood?.ir ?? null)
 const viewBtn = document.getElementById('btn-view')!
 document.getElementById('btn-save')!.addEventListener('click', () => void saveDirty())
 document.getElementById('btn-restart')!.addEventListener('click', () => restartPreview())
+document.getElementById('btn-tts')!.addEventListener('click', () => void openTtsSettings())
 viewBtn.addEventListener('click', () => {
   const toGraph = !sideEl.classList.contains('graph-mode')
   sideEl.classList.toggle('graph-mode', toGraph)
