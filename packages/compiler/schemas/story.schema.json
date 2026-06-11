@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "vn://schemas/story",
+  "title": "VN 入口文件（story.yaml）",
+  "type": "object",
+  "required": ["title", "entry"],
+  "additionalProperties": false,
+  "properties": {
+    "title": { "type": "string", "description": "游戏标题" },
+    "version": { "type": "string" },
+    "entry": { "type": "string", "description": "入口场景 id" },
+    "vars": {
+      "type": "object",
+      "description": "变量声明与默认值；使用未声明变量是编译错误",
+      "additionalProperties": { "type": ["number", "boolean", "string"] }
+    },
+    "endings": {
+      "type": "object",
+      "description": "结局注册表",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["title"],
+        "additionalProperties": false,
+        "properties": { "title": { "type": "string" } }
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+# 入口文件：元信息、变量声明、结局注册
+title: 雨伞
+version: 0.1.0
+entry: ch01
+
+# 所有变量必须在此声明默认值，使用未声明变量是编译错误
+vars:
+  has_umbrella: false
+  favor: 0
+  luck: 0          # 开局随机决定，演示 randint 与权重公式
+
+endings:
+  good_ending:
+    title: 雨停之后
+  normal_ending:
+    title: 一个人的雨声

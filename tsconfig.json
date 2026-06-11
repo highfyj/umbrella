@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": false,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "paths": {
+      "@vn/core": ["./packages/core/src/index.ts"],
+      "@vn/compiler": ["./packages/compiler/src/index.ts"],
+      "@vn/runtime": ["./packages/runtime/src/index.ts"]
+    }
+  },
+  "include": ["packages/*/src/**/*.ts", "packages/*/test/**/*.ts"]
+}

@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "vn://schemas/characters",
+  "title": "VN 角色注册表（characters.yaml）",
+  "type": "object",
+  "required": ["characters"],
+  "additionalProperties": false,
+  "properties": {
+    "characters": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+          "voiced": { "type": "boolean", "description": "false = 该角色台词默认不配音" },
+          "sprite": {
+            "type": "object",
+            "required": ["default"],
+            "additionalProperties": false,
+            "properties": {
+              "dims": {
+                "type": "object",
+                "description": "维度词表：先声明、后出图；脚本用词不在词表中才是错误",
+                "additionalProperties": false,
+                "properties": {
+                  "outfit": { "type": "array", "items": { "type": "string" } },
+                  "state": { "type": "array", "items": { "type": "string" } },
+                  "face": { "type": "array", "items": { "type": "string" } }
+                }
+              },
+              "default": {
+                "type": "object",
+                "required": ["outfit", "face"],
+                "additionalProperties": false,
+                "properties": {
+                  "outfit": { "type": "string" },
+                  "face": { "type": "string" }
+                }
+              },
+              "variants": {
+                "type": "array",
+                "description": "整图变体：每条 = 一张完整立绘 + 维度标注；允许为空（占位渲染）",
+                "items": {
+                  "type": "object",
+                  "required": ["outfit", "face", "file"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "outfit": { "type": "string" },
+                    "face": { "type": "string" },
+                    "state": {
+                      "anyOf": [
+                        { "type": "string" },
+                        { "type": "array", "items": { "type": "string" } }
+                      ]
+                    },
+                    "file": { "type": "string", "description": "相对 sprite/ 的路径" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "vn://schemas/assets",
+  "title": "VN 资源清单（assets.yaml）",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "backgrounds": { "type": "object", "additionalProperties": { "type": "string" } },
+    "bgm": { "type": "object", "additionalProperties": { "type": "string" } },
+    "se": { "type": "object", "additionalProperties": { "type": "string" } }
+  }
+}

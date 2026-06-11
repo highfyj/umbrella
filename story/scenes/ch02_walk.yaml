@@ -1,0 +1,23 @@
+scene: ch02_walk
+title: 同一把伞
+
+steps:
+  - bg: { name: street_rain, transition: fade, duration: 800 }
+  - bgm: { name: warm_theme, fade: 2000 }
+  - "一把折叠伞，对两个人来说还是太小了。"
+  - show: { who: 小满, face: 微笑, at: center }
+
+  - 小满: "你肩膀都湿了，再靠过来一点啦。"
+    id: ch02_walk_0010
+  - 我: "……哦、哦。"
+
+  - show: { who: 小满, state: 淋湿 }   # 在场更新：只改 state 维度 → 解析为淋湿变体
+  - "嘴上这么说，她自己的半边肩膀其实也早就被雨水打透了。"
+
+  - if: "favor >= 1"
+    then:
+      - 小满@微笑: "下次……就算不下雨，也可以一起走吗？"
+        id: ch02_walk_0020
+
+  - "雨声里，回家的路好像比平时短了一半。"
+  - end: good_ending

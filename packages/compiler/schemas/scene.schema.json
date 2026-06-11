@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "vn://schemas/scene",
+  "title": "VN 场景脚本（scenes/*.yaml）",
+  "type": "object",
+  "required": ["scene", "steps"],
+  "additionalProperties": false,
+  "properties": {
+    "scene": { "type": "string", "description": "场景 id，必须与文件名一致" },
+    "title": { "type": "string" },
+    "steps": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          { "type": "string", "description": "旁白（无语音）" },
+          {
+            "type": "object",
+            "description": "指令，或 \"角色名[@表情]: 台词\"（语义判别由编译器完成）",
+            "minProperties": 1
+          }
+        ]
+      }
+    }
+  }
+}

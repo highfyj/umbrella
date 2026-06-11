@@ -1,0 +1,14 @@
+# 背景 / BGM / SE 注册表；立绘变体在 characters.yaml 中随角色注册
+# 注册 = 词表（脚本引用未注册的名字才报错）；文件未到位只警告，运行时占位兜底
+backgrounds:
+  home_morning: bg/home_morning.jpg
+  classroom_evening: bg/classroom_evening.jpg
+  street_rain: bg/street_rain.jpg
+
+bgm:
+  rain_theme: bgm/rain_theme.ogg
+  warm_theme: bgm/warm_theme.ogg
+
+se:
+  thunder: se/thunder.ogg
+  door_slide: se/door_slide.ogg

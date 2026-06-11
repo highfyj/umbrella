@@ -1,0 +1,22 @@
+characters:
+  小满:
+    color: "#e8748a"
+    voiced: true          # 默认值，可省略；台词级可用 voice: false 覆盖
+    sprite:
+      dims:                                   # 维度词表：先声明、后出图；脚本用词不在词表中才是错误
+        outfit: [校服, 便服]
+        state: [淋湿, 受伤]
+        face: [默认, 微笑, 赌气, 失落]
+      default: { outfit: 校服, face: 默认 }   # 首次登场的初始维度，state 默认为空
+      variants:                               # 允许为空——缺图组合只警告，运行时占位渲染
+        # 每条 = 一张 AI 生成的完整立绘，用维度标注；脚本按维度寻址，编译器解析到文件
+        - { outfit: 校服, face: 默认, file: xiaoman/seifuku_normal.png }
+        - { outfit: 校服, face: 微笑, file: xiaoman/seifuku_smile.png }
+        - { outfit: 校服, face: 赌气, file: xiaoman/seifuku_pout.png }
+        - { outfit: 校服, face: 失落, file: xiaoman/seifuku_sad.png }
+        - { outfit: 校服, face: 微笑, state: 淋湿, file: xiaoman/seifuku_smile_wet.png }
+
+  我:
+    color: "#8ab4e8"
+    voiced: false         # 无语音主角：该角色所有台词默认不配音、不分配语音 id
+                          # 省略 sprite = 无立绘角色

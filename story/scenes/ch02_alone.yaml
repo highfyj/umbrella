@@ -1,0 +1,30 @@
+scene: ch02_alone
+title: 一个人的雨声
+
+steps:
+  - se: door_slide
+  - hide: { who: 小满, transition: fade }
+  - "小满抱着书包冲进了雨里，越跑越远，直到看不见。"
+  - bg: { name: street_rain, transition: fade, duration: 800 }
+  - bgm: stop
+
+  - if: "favor >= 1"
+    then:
+      - "至少，今天聊得还算开心——我这样安慰自己。"
+    else:
+      - "总觉得，好像错过了什么。"
+
+  # 随机氛围旁白：权重由变量公式决定
+  - random:
+      - weight: 60
+        then:
+          - "雨幕里，路灯一盏盏亮了起来。"
+      - weight: "favor * 40"          # favor 为 0 时权重 0，绝不会被抽中
+        then:
+          - "雨幕里，我又想起她跑开时的背影。"
+      - weight: "luck * 10"           # 今日运势越好，越容易注意到彩虹的预兆
+        then:
+          - "云层的缝隙里，透出了一点将晴的天光。"
+
+  - "一个人的雨声，格外地响。"
+  - end: normal_ending
