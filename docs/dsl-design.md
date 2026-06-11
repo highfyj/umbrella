@@ -149,6 +149,37 @@ characters:
 
 编译器同时导出**立绘生成清单**：所有可达但缺图的组合 + 触发它的场景/行号 + 剧情上下文——直接交给 AI 出图流程，与录音台本导出对称。出图完成放入 `sprite/`、补一行 variant 注册，警告即消除。
 
+### 5.5 编辑素材与生产元数据（production）
+
+资产分两类：**运行资产**（bg/bgm/se/sprite/voice，随游戏发布）与**编辑素材**（`production/` 目录，只服务于生产管线，不进 IR、不打包）。编辑素材挂在 `characters.yaml` 的角色节点下，与角色的数据关联天然成立：
+
+```yaml
+characters:
+  小满:
+    sprite: { ... }                # 运行资产
+    production:                    # 编辑素材
+      refs:                        # AI 出图参考立绘（角色设定图/三视图）
+        - production/refs/xiaoman/character_sheet.png
+      tts:                         # TTS 语音生成配置
+        provider: gpt-sovits       # 服务标识，透传给生成接口
+        sample: production/tts/xiaoman/sample.wav   # 音色参考音频
+        params: { speaker: xiaoman_v1, speed: 1.0 } # 自由参数，原样透传
+```
+
+数据关联总图（注册表 = 关联中枢，目录约定 = 发现机制）：
+
+```
+脚本中的"名字" ──┬─ assets.yaml     backgrounds/bgm/se: 名字 → bg|bgm|se/文件
+                ├─ characters.yaml  角色名 → sprite.variants:(outfit,state,face) → sprite/文件
+                │                          → production.refs / production.tts（编辑素材）
+                └─ 语音 id ──约定派生──→ voice/<场景>/<id>.ogg + voice.lock
+生产管线：立绘清单 + refs → AI 出图 → sprite/ 落盘 → 注册 variant（警告消除）
+          录音台本 + tts 配置 → TTS 接口 → voice/ 落盘 → voice.lock
+```
+
+- 编译器解析 `production` 仅做文件存在性提示（**info 级**，比资产警告更轻），其内容绝不写入 IR。
+- 编辑器的资产管理面板基于此模型：磁盘扫描发现未注册文件 → 一键注册写回 YAML（结构化编辑、保留注释、走撤销栈）；参考图/音色文件 → 关联到角色的 production 块。
+
 ## 6. 状态与表达式
 
 ### 6.1 变量

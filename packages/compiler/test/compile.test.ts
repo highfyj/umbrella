@@ -212,6 +212,31 @@ steps:
     expect(trap?.message).toContain('true/false')
   })
 
+  it('production 编辑素材：缺文件只提示（info），不进 IR', () => {
+    const r = compileProject(
+      minimalProject({
+        'story/characters.yaml': `
+characters:
+  甲:
+    sprite:
+      default: { outfit: 常服, face: 默认 }
+      variants:
+        - { outfit: 常服, face: 默认, file: a/normal.png }
+    production:
+      refs: [production/refs/a/sheet.png]
+      tts: { provider: gpt-sovits, sample: production/tts/a/sample.wav, params: { speed: 1.0 } }
+  乙:
+    voiced: false
+`,
+      }),
+    )
+    expect(r.diagnostics.errors).toEqual([])
+    const infos = r.diagnostics.items.filter((d) => d.code === 'production-missing-file')
+    expect(infos).toHaveLength(2) // 参考图 + 音色文件都不存在
+    expect(infos.every((d) => d.severity === 'info')).toBe(true)
+    expect(JSON.stringify(r.ir)).not.toContain('production/') // 不进 IR
+  })
+
   it('场景末尾无 jump/end → 警告', () => {
     const r = compileProject(
       minimalProject({

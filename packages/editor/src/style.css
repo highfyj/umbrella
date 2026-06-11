@@ -63,13 +63,6 @@ body,
 .status .ok { color: #7ddf9a; }
 
 /* ---------- 文件列表 ---------- */
-#files {
-  grid-area: files;
-  overflow-y: auto;
-  background: #1a1d28;
-  border-right: 1px solid #2c3144;
-  padding: 8px 0;
-}
 #files .group {
   padding: 6px 14px 4px;
   font-size: 11px;
@@ -171,3 +164,139 @@ body,
   text-align: center;
   line-height: 2;
 }
+
+/* ---------- 侧栏标签页 ---------- */
+#sidebar {
+  grid-area: files;
+  display: flex;
+  flex-direction: column;
+  background: #1a1d28;
+  border-right: 1px solid #2c3144;
+  min-height: 0;
+}
+#side-tabs {
+  display: flex;
+  border-bottom: 1px solid #2c3144;
+}
+#side-tabs .tab {
+  flex: 1;
+  padding: 8px 0;
+  font-size: 13px;
+  color: #8a93b0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+#side-tabs .tab.active {
+  color: #fff;
+  background: #242938;
+  border-bottom: 2px solid #2d5a9e;
+}
+#files,
+#assets-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+/* ---------- 资产面板 ---------- */
+.asset-toolbar { padding: 0 10px 6px; }
+.asset-toolbar button {
+  font-size: 12px;
+  padding: 3px 10px;
+  color: #8a93b0;
+  background: #242938;
+  border: 1px solid #3a4158;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.asset-head {
+  padding: 6px 12px 4px;
+  font-size: 12px;
+  color: #9aa3c0;
+  cursor: pointer;
+  user-select: none;
+  letter-spacing: 1px;
+}
+.asset-head .count { float: right; color: #5b6380; }
+.asset-subhead {
+  padding: 4px 14px 2px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.asset-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 18px;
+  font-size: 12.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.asset-item:hover { background: #242938; }
+.asset-item.unreg { color: #8a93b0; font-style: italic; }
+.asset-item .a-icon { width: 16px; text-align: center; flex: none; }
+.asset-item .a-label { overflow: hidden; text-overflow: ellipsis; }
+.asset-item .a-badge {
+  margin-left: auto;
+  flex: none;
+  font-size: 10px;
+  font-style: normal;
+  color: #ffc878;
+  border: 1px solid rgba(255, 200, 120, 0.4);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+.asset-empty { padding: 6px 18px; color: #5b6380; font-size: 12px; }
+
+/* 资产预览浮窗 */
+#asset-preview {
+  position: fixed;
+  left: 210px;
+  top: 60px;
+  width: 300px;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: #20242f;
+  border: 1px solid #3a4158;
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  padding: 12px;
+  z-index: 50;
+  display: none;
+}
+#asset-preview.on { display: block; }
+#asset-preview img { width: 100%; border-radius: 6px; background: #14161d; }
+#asset-preview audio { width: 100%; margin-top: 4px; }
+#asset-preview .ap-title { font-weight: 600; margin-bottom: 8px; }
+#asset-preview .ap-path { font-size: 11px; color: #6d7591; margin-top: 6px; word-break: break-all; }
+#asset-preview .ap-missing { color: #ffc878; font-size: 12px; padding: 12px 0; }
+#asset-preview .ap-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+#asset-preview .ap-actions button {
+  font-size: 12px;
+  padding: 4px 10px;
+  color: #d4d6dd;
+  background: #2a2f42;
+  border: 1px solid #3a4158;
+  border-radius: 5px;
+  cursor: pointer;
+}
+#asset-preview .ap-actions button:hover { background: #39405c; }
+
+/* 光标停留预览小窗 */
+.cursor-preview {
+  max-width: 260px;
+  background: #20242f;
+  border: 1px solid #3a4158;
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  padding: 8px 10px;
+  z-index: 60;
+  font-size: 12px;
+  color: #d4d6dd;
+}
+.cursor-preview img { max-width: 240px; max-height: 200px; display: block; border-radius: 4px; }
+.cursor-preview audio { width: 240px; height: 32px; margin-top: 4px; }
+.cursor-preview .cp-title { font-weight: 600; margin-bottom: 4px; }
+.cursor-preview .cp-missing { color: #ffc878; margin-top: 4px; }
+.cursor-preview .cp-detail { color: #8a93b0; margin-top: 4px; max-width: 240px; white-space: normal; }

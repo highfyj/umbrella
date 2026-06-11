@@ -23,11 +23,20 @@ export interface SpriteRegistry {
   variantPos: Map<string, Pos | null>
 }
 
+/** 编辑素材（生产元数据）：不进 IR、不随游戏发布 */
+export interface ProductionInfo {
+  /** AI 出图参考立绘（production/refs/ 下） */
+  refs: string[]
+  /** TTS 音色：参考音频 + 透传给生成接口的参数 */
+  tts: { provider?: string; sample?: string; params?: Record<string, unknown> } | null
+}
+
 export interface CharacterDef {
   name: string
   color?: string
   voiced: boolean
   sprite: SpriteRegistry | null
+  production: ProductionInfo | null
 }
 
 export interface Registry {
@@ -105,6 +114,7 @@ export function buildRegistry(
       color: str(d.color),
       voiced: d.voiced !== false,
       sprite,
+      production: buildProduction(d.production as Json | undefined),
     })
   }
 
@@ -174,6 +184,21 @@ function buildSprite(
   }
 
   return { dims, dimsDeclared, default: { outfit: defOutfit, face: defFace }, variants, variantPos }
+}
+
+function buildProduction(p: Json | undefined): ProductionInfo | null {
+  if (!p) return null
+  const ttsRaw = p.tts as Json | undefined
+  return {
+    refs: strList(p.refs),
+    tts: ttsRaw
+      ? {
+          provider: str(ttsRaw.provider),
+          sample: str(ttsRaw.sample),
+          params: ttsRaw.params && typeof ttsRaw.params === 'object' ? (ttsRaw.params as Record<string, unknown>) : undefined,
+        }
+      : null,
+  }
 }
 
 function str(v: unknown): string | undefined {

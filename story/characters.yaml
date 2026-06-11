@@ -15,6 +15,15 @@ characters:
         - { outfit: 校服, face: 赌气, file: xiaoman/seifuku_pout.png }
         - { outfit: 校服, face: 失落, file: xiaoman/seifuku_sad.png }
         - { outfit: 校服, face: 微笑, state: 淋湿, file: xiaoman/seifuku_smile_wet.png }
+    production:                               # 编辑素材：不进 IR、不随游戏发布
+      refs:                                   # AI 出图参考立绘
+        - production/refs/xiaoman/character_sheet.png
+      tts:                                    # TTS 音色：参考音频 + 生成接口参数
+        provider: gpt-sovits
+        sample: production/tts/xiaoman/sample.wav
+        params:
+          speaker: xiaoman_v1
+          speed: 1.0
 
   我:
     color: "#8ab4e8"

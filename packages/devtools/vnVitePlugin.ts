@@ -110,6 +110,25 @@ export function vnPlugin(opts: VnPluginOptions): Plugin {
           return
         }
 
+        if (url === '/api/assets') {
+          const walk = (dir: string, prefix: string): string[] => {
+            const full = join(repoRoot, dir)
+            if (!existsSync(full)) return []
+            const out: string[] = []
+            for (const e of readdirSync(full, { withFileTypes: true })) {
+              if (e.name.startsWith('.')) continue
+              if (e.isDirectory()) out.push(...walk(`${dir}/${e.name}`, `${prefix}/${e.name}`))
+              else out.push(`${prefix}/${e.name}`)
+            }
+            return out
+          }
+          const cats = ['bg', 'bgm', 'se', 'sprite', 'voice', 'production'] as const
+          const files: Record<string, string[]> = {}
+          for (const c of cats) files[c] = walk(c, c)
+          json(res, 200, { files })
+          return
+        }
+
         if (url === '/api/files') {
           const scenes = existsSync(join(repoRoot, 'story/scenes'))
             ? readdirSync(join(repoRoot, 'story/scenes'))
@@ -145,7 +164,7 @@ export function vnPlugin(opts: VnPluginOptions): Plugin {
           return
         }
 
-        if (/^\/(sprite|bg|bgm|se|voice)\//.test(url)) {
+        if (/^\/(sprite|bg|bgm|se|voice|production)\//.test(url)) {
           const file = join(repoRoot, decodeURIComponent(url))
           if (existsSync(file) && statSync(file).isFile()) {
             res.setHeader('Content-Type', MIME[extname(file).toLowerCase()] ?? 'application/octet-stream')

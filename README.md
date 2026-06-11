@@ -13,6 +13,7 @@
 - [x] 无头运行时 VM + 剧情测试（确定性随机、存读档、结局可达）
 - [x] Web 播放器 UI（占位渲染、缺失资产 HUD、语音/打字机差异化推进、存读档、YAML 热刷新）
 - [x] 编辑器（Monaco + Schema 补全、未保存缓冲区实时语义诊断、内嵌预览、剧情流程图）
+- [x] 资产管理面板（分层树、预览/插入/拖拽、一键注册写回 YAML、光标停留预览小窗、production 编辑素材）
 
 ## 常用命令
 
@@ -34,7 +35,8 @@ npm run vn -- check --strict      发布前 QA：警告升级为错误
 docs/dsl-design.md       DSL 设计文档（先读这个）
 story/                   剧本源文件（story/characters/assets + scenes/*.yaml）
 voice/                   语音文件（voice/<场景>/<语音id>.ogg，待录制）
-sprite/ bg/ bgm/ se/     图音资产（可后补，缺失时占位）
+sprite/ bg/ bgm/ se/     运行资产（可后补，缺失时占位）
+production/              编辑素材（不随游戏发布）：refs/ AI出图参考、tts/ 音色文件
 packages/
   core/                  IR 类型、表达式求值、可序列化 PRNG
   compiler/              YAML → 校验/linter → IR；CLI 与各导出；JSON Schema

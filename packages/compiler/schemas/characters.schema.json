@@ -14,6 +14,28 @@
         "properties": {
           "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
           "voiced": { "type": "boolean", "description": "false = 该角色台词默认不配音" },
+          "production": {
+            "type": "object",
+            "description": "编辑素材（生产元数据）：不进 IR、不随游戏发布",
+            "additionalProperties": false,
+            "properties": {
+              "refs": {
+                "type": "array",
+                "description": "AI 出图参考立绘（production/refs/ 下的路径）",
+                "items": { "type": "string" }
+              },
+              "tts": {
+                "type": "object",
+                "description": "TTS 音色配置：参考音频 + 透传给生成接口的参数",
+                "additionalProperties": false,
+                "properties": {
+                  "provider": { "type": "string", "description": "TTS 服务标识（如 gpt-sovits）" },
+                  "sample": { "type": "string", "description": "音色参考音频（production/tts/ 下的路径）" },
+                  "params": { "type": "object", "description": "透传给 TTS 接口的自由参数" }
+                }
+              }
+            }
+          },
           "sprite": {
             "type": "object",
             "required": ["default"],

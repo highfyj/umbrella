@@ -3,6 +3,8 @@ import { monaco } from './monacoSetup.js'
 import { Game } from '@vn/player'
 import type { StoryIR } from '@vn/core'
 import { renderGraph } from './graph.js'
+import { AssetPanel, DRAG_MIME } from './assetPanel.js'
+import { CursorPreview } from './cursorPreview.js'
 
 interface Diag {
   severity: 'error' | 'warning' | 'info'
@@ -27,7 +29,14 @@ app.innerHTML = `
       <button id="btn-view">流程图</button>
       <span class="status" id="status">就绪</span>
     </div>
-    <aside id="files"></aside>
+    <aside id="sidebar">
+      <div id="side-tabs">
+        <button class="tab active" data-tab="files">文件</button>
+        <button class="tab" data-tab="assets">资产</button>
+      </div>
+      <div id="files"></div>
+      <div id="assets-panel" hidden></div>
+    </aside>
     <main id="editor"></main>
     <section id="side">
       <div id="preview"><div class="preview-msg">加载中…</div></div>
@@ -37,6 +46,7 @@ app.innerHTML = `
   </div>`
 
 const filesEl = document.getElementById('files')!
+const assetsEl = document.getElementById('assets-panel')!
 const editorEl = document.getElementById('editor')!
 const previewEl = document.getElementById('preview')!
 const graphEl = document.getElementById('graph')!
@@ -65,7 +75,7 @@ let game: Game | null = null
 let compileTimer: number | null = null
 let compileSeq = 0
 
-// ---------- 文件管理 ----------
+// ---------- 文件与 model 管理 ----------
 
 async function loadFileList(): Promise<void> {
   fileList = ((await (await fetch('/api/files')).json()) as { files: string[] }).files
@@ -90,7 +100,8 @@ function renderFileList(): void {
   }
 }
 
-async function openFile(path: string): Promise<void> {
+/** 加载（不切换编辑器）；所有 model 都从这里建，统一挂 dirty/编译监听 */
+async function ensureModel(path: string): Promise<ReturnType<typeof monaco.editor.createModel>> {
   let model = models.get(path)
   if (!model) {
     const data = (await (await fetch(`/api/file?path=${encodeURIComponent(path)}`)).json()) as { content: string }
@@ -102,6 +113,11 @@ async function openFile(path: string): Promise<void> {
     })
     models.set(path, model)
   }
+  return model
+}
+
+async function openFile(path: string): Promise<void> {
+  const model = await ensureModel(path)
   currentPath = path
   editor.setModel(model)
   renderFileList()
@@ -114,7 +130,7 @@ async function saveDirty(): Promise<void> {
     if (!model) continue
     await fetch('/api/file', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
       body: JSON.stringify({ path, content: model.getValue() }),
     })
     dirty.delete(path)
@@ -122,6 +138,7 @@ async function saveDirty(): Promise<void> {
   renderFileList()
   await compileNow()
   restartPreview()
+  if (!assetsEl.hidden) void assetPanel.refresh()
 }
 
 // ---------- 编译与诊断 ----------
@@ -140,7 +157,7 @@ async function compileNow(): Promise<void> {
     payload = (await (
       await fetch('/api/compile', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
         body: JSON.stringify({ overrides }),
       })
     ).json()) as CompilePayload
@@ -165,9 +182,8 @@ function applyMarkers(): void {
     const markers = lastDiags
       .filter((d) => d.file === path && d.pos)
       .map((d) => {
-        const line = d.pos!.line
+        const line = Math.min(d.pos!.line, model.getLineCount())
         const col = d.pos!.col
-        const lineLen = Math.max(col + 1, model.getLineLength(Math.min(line, model.getLineCount())) + 1)
         return {
           severity:
             d.severity === 'error'
@@ -179,7 +195,7 @@ function applyMarkers(): void {
           startLineNumber: line,
           startColumn: col,
           endLineNumber: line,
-          endColumn: lineLen,
+          endColumn: Math.max(col + 1, model.getLineLength(line) + 1),
         }
       })
     monaco.editor.setModelMarkers(model, 'vn-compiler', markers)
@@ -246,7 +262,62 @@ function refreshGraph(): void {
   }
 }
 
-// ---------- 工具栏与快捷键 ----------
+// ---------- 资产面板与脚本插入 ----------
+
+/** 在光标所在行下方插入一个步骤（2 空格缩进的 "- xxx"） */
+function insertStep(snippet: string): void {
+  const model = editor.getModel()
+  if (!model || !currentPath?.includes('/scenes/')) {
+    void openFile(fileList.find((f) => f.includes('/scenes/')) ?? fileList[0]).then(() => insertStep(snippet))
+    return
+  }
+  const pos = editor.getPosition() ?? { lineNumber: model.getLineCount(), column: 1 }
+  insertStepAtLine(snippet, pos.lineNumber)
+}
+
+function insertStepAtLine(snippet: string, lineNumber: number): void {
+  const model = editor.getModel()
+  if (!model) return
+  const text = snippet.startsWith('- ') ? snippet : `- ${snippet}`
+  const col = model.getLineMaxColumn(lineNumber)
+  editor.executeEdits('vn-asset', [
+    { range: new monaco.Range(lineNumber, col, lineNumber, col), text: `\n  ${text}` },
+  ])
+  editor.setPosition({ lineNumber: lineNumber + 1, column: model.getLineMaxColumn(lineNumber + 1) })
+  editor.focus()
+}
+
+const assetPanel = new AssetPanel(assetsEl, {
+  getIr: () => lastGood?.ir ?? null,
+  ensureModel,
+  insertStep,
+  openFile: (p) => void openFile(p),
+  onMutated: () => {
+    void compileNow().then(() => assetPanel.refresh())
+  },
+})
+
+// 拖拽资产 → 放到编辑器某一行
+const editorDom = editor.getDomNode()
+if (editorDom) {
+  editorDom.addEventListener('dragover', (e) => {
+    e.preventDefault()
+    e.dataTransfer!.dropEffect = 'copy'
+  })
+  editorDom.addEventListener('drop', (e) => {
+    const snippet = e.dataTransfer?.getData(DRAG_MIME)
+    if (!snippet) return
+    e.preventDefault()
+    const target = editor.getTargetAtClientPoint(e.clientX, e.clientY)
+    const line = target?.position?.lineNumber ?? editor.getModel()?.getLineCount() ?? 1
+    insertStepAtLine(snippet, line)
+  })
+}
+
+// 光标停留预览小窗
+new CursorPreview(editor, () => lastGood?.ir ?? null)
+
+// ---------- 工具栏、标签页与快捷键 ----------
 
 const viewBtn = document.getElementById('btn-view')!
 document.getElementById('btn-save')!.addEventListener('click', () => void saveDirty())
@@ -257,6 +328,18 @@ viewBtn.addEventListener('click', () => {
   viewBtn.textContent = toGraph ? '预览' : '流程图'
   if (toGraph) refreshGraph()
 })
+
+for (const tab of document.querySelectorAll<HTMLElement>('#side-tabs .tab')) {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('#side-tabs .tab').forEach((t) => t.classList.remove('active'))
+    tab.classList.add('active')
+    const isAssets = tab.dataset.tab === 'assets'
+    filesEl.hidden = isAssets
+    assetsEl.hidden = !isAssets
+    if (isAssets) void assetPanel.refresh()
+  })
+}
+
 window.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
     e.preventDefault()

@@ -63,6 +63,18 @@ export function compileProject(files: ProjectFiles): CompileResult {
     return out
   }
 
+  // 编辑素材（production）：只做存在性提示，不进 IR、不随游戏发布
+  for (const c of reg.characters.values()) {
+    if (!c.production) continue
+    for (const ref of c.production.refs) {
+      if (!files.exists(ref)) diag.info('production-missing-file', `角色 "${c.name}" 的参考图不存在（${ref}）`, 'story/characters.yaml')
+    }
+    const sample = c.production.tts?.sample
+    if (sample && !files.exists(sample)) {
+      diag.info('production-missing-file', `角色 "${c.name}" 的音色文件不存在（${sample}）`, 'story/characters.yaml')
+    }
+  }
+
   const charactersIR: Record<string, CharacterIR> = {}
   for (const c of reg.characters.values()) {
     let sprite: CharacterIR['sprite'] = null

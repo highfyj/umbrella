@@ -11,7 +11,8 @@
     "@vn/player": "*",
     "@vn/runtime": "*",
     "monaco-editor": "^0.52.0",
-    "monaco-yaml": "^5.2.3"
+    "monaco-yaml": "^5.2.3",
+    "yaml": "^2.5.0"
   },
   "devDependencies": {
     "@vn/compiler": "*",
