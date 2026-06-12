@@ -6,8 +6,8 @@ backgrounds:
   street_rain: bg/street_rain.jpg
 
 bgm:
-  rain_theme: bgm/rain_theme.ogg
-  warm_theme: bgm/warm_theme.ogg
+  Afternoon_relax: bgm/Ver_o_no_Cais.mp3
+  Rainy_First_Love: bgm/Rainy_First_Love.mp3
 
 se:
   thunder: se/thunder.ogg

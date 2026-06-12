@@ -3,7 +3,7 @@ title: 同一把伞
 
 steps:
   - bg: { name: street_rain, transition: fade, duration: 800 }
-  - bgm: { name: warm_theme, fade: 2000 }
+  - bgm: { name: Rainy_First_Love, fade: 2000 }
   - "一把折叠伞，对两个人来说还是太小了。"
   - show: { who: 小满, face: 微笑, at: center }
 

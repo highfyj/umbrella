@@ -14,7 +14,7 @@ steps:
 
   # ── 傍晚：教室 ──
   - bg: { name: classroom_evening, transition: fade, duration: 800 }
-  - bgm: rain_theme
+  - bgm: Afternoon_relax
   - "果然还是下了。雨从第五节课开始，一直没有停。"
   - "教室里只剩下我们两个人。"
   - show: { who: 小满, at: center }   # 维度取注册表 default：校服 / 默认表情 / 无状态
