@@ -6,9 +6,14 @@ import {
   type AssetIndex,
   type CharacterView,
 } from './assetIndex.js'
-import { showModal } from './modal.js'
+import { pickPath } from './fsBrowser.js'
+import { importAssetFlow, sanitizeFileName, type ImportSource } from './importAsset.js'
+import { showModal, type ModalAction } from './modal.js'
 import { loadTtsSettings, openTtsSettings, pathForMode } from './ttsSettings.js'
-import { addCharacter, addRef, ensureSpriteDefault, registerAsset, registerVariant, setTtsSample, type YamlModel } from './yamlEdit.js'
+import {
+  addCharacter, addRef, clearTtsSample, ensureSpriteDefault, registerAsset, registerVariant,
+  removeAsset, removeRef, removeVariant, setTtsSample, type YamlModel,
+} from './yamlEdit.js'
 import type { StoryIR } from '@vn/core'
 
 export interface AssetPanelHost {
@@ -22,6 +27,9 @@ export interface AssetPanelHost {
 type Action = [label: string, run: () => void | Promise<void>]
 
 export const DRAG_MIME = 'text/plain'
+
+const IMG_EXTS = ['.png', '.jpg', '.jpeg', '.webp', '.gif']
+const AUD_EXTS = ['.ogg', '.mp3', '.wav', '.m4a']
 
 export class AssetPanel {
   private index: AssetIndex | null = null
@@ -48,6 +56,24 @@ export class AssetPanel {
     document.addEventListener('contextmenu', (e) => {
       if (!this.container.contains(e.target as Node)) this.menuEl.classList.remove('on')
     })
+
+    // 从 OS 拖文件进面板 → 导入流程（面板内部资产拖拽不带 Files 类型，不受影响）
+    container.addEventListener('dragover', (e) => {
+      if (!e.dataTransfer?.types.includes('Files')) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'copy'
+      container.classList.add('drop-target')
+    })
+    container.addEventListener('dragleave', () => container.classList.remove('drop-target'))
+    container.addEventListener('drop', (e) => {
+      container.classList.remove('drop-target')
+      const files = [...(e.dataTransfer?.files ?? [])]
+      if (!files.length) return
+      e.preventDefault()
+      void (async () => {
+        for (const f of files) await this.runImport({ kind: 'blob', file: f })
+      })()
+    })
   }
 
   async refresh(): Promise<void> {
@@ -66,7 +92,10 @@ export class AssetPanel {
 
   private render(): void {
     const idx = this.index!
-    const html: string[] = [`<div class="asset-toolbar"><button data-act="refresh">↻ 刷新</button></div>`]
+    const html: string[] = [
+      `<div class="asset-toolbar"><button data-act="refresh">↻ 刷新</button> <button data-act="import">⤓ 导入素材</button></div>`,
+      `<div class="asset-drophint">可直接把图片/音频拖进本面板</div>`,
+    ]
 
     html.push(this.section('背景', 'bg', true, [
       ...idx.backgrounds.map((a) =>
@@ -144,11 +173,11 @@ export class AssetPanel {
   private charProduction(c: CharacterView): string[] {
     const rows = [`<div class="asset-subhead" style="color:${c.color ?? '#9aa3c0'}">${esc(c.name)}</div>`]
     for (const r of c.refs) {
-      rows.push(this.item({ icon: '🎨', label: r.path.replace('production/refs/', ''), sub: r.exists ? '参考图' : '参考图 · 缺文件', badge: r.exists ? '' : '缺文件', data: { kind: 'ref', file: r.path, missing: String(!r.exists) } }))
+      rows.push(this.item({ icon: '🎨', label: r.path.replace('production/refs/', ''), sub: r.exists ? '参考图' : '参考图 · 缺文件', badge: r.exists ? '' : '缺文件', data: { kind: 'ref', who: c.name, file: r.path, missing: String(!r.exists) } }))
     }
     if (c.tts) {
       const sub = `${c.tts.provider ?? '未设 provider'}${c.tts.params ? ' · ' + Object.entries(c.tts.params).map(([k, v]) => `${k}=${String(v)}`).join(' ') : ''}`
-      rows.push(this.item({ icon: '🎙', label: c.tts.sample ?? '（未设音色文件）', sub: `TTS ${sub}`, badge: c.tts.sample && !c.tts.sampleExists ? '缺文件' : '', data: { kind: 'tts', file: c.tts.sample ?? '', missing: String(!c.tts.sampleExists) } }))
+      rows.push(this.item({ icon: '🎙', label: c.tts.sample ?? '（未设音色文件）', sub: `TTS ${sub}`, badge: c.tts.sample && !c.tts.sampleExists ? '缺文件' : '', data: { kind: 'tts', who: c.name, file: c.tts.sample ?? '', missing: String(!c.tts.sampleExists) } }))
     }
     return rows
   }
@@ -189,6 +218,7 @@ export class AssetPanel {
 
   private bind(): void {
     this.container.querySelector('[data-act="refresh"]')?.addEventListener('click', () => void this.refresh())
+    this.container.querySelector('[data-act="import"]')?.addEventListener('click', () => void this.importFromDisk())
     for (const head of this.container.querySelectorAll<HTMLElement>('.asset-head')) {
       head.addEventListener('click', (e) => {
         if ((e.target as HTMLElement).dataset.add) {
@@ -233,7 +263,116 @@ export class AssetPanel {
     if (kind === 'loose-ref') actions.push(['关联到角色…', () => this.associateRef(d.file!)])
     if (kind === 'loose-tts') actions.push(['设为角色音色…', () => this.associateTts(d.file!)])
     if (kind === 'tts' || kind === 'ref') actions.push(['打开 characters.yaml', () => this.host.openFile('story/characters.yaml')])
+
+    // 移除/删除（带预览的确认框；破坏性动作放最后）
+    const file = d.file ?? ''
+    const exists = d.missing !== 'true' && !!file
+    if (kind === 'bg' || kind === 'bgm' || kind === 'se') {
+      const kindMap = { bg: 'backgrounds', bgm: 'bgm', se: 'se' } as const
+      actions.push(['移除…', () => this.removeRegisteredFlow(kindMap[kind], d.name!, file, exists)])
+    }
+    if (kind === 'variant') actions.push(['移除变体…', () => this.removeVariantFlow(d.who!, d.combo!, file, exists)])
+    if (kind === 'voice' && exists) actions.push(['删除录音…', () => this.removeVoiceFlow(d.id!, file, d.who ?? '', d.text ?? '')])
+    if (kind === 'ref') actions.push(['移除参考图…', () => this.removeRefFlow(d.who!, file, exists)])
+    if (kind === 'tts' && file) actions.push(['移除音色…', () => this.removeTtsFlow(d.who!, file, exists)])
+    if (kind.startsWith('loose-')) actions.push(['删除文件…', () => this.removeLooseFlow(file)])
     return actions
+  }
+
+  // ---------- 移除资产（注册写回 + 可选删除磁盘文件） ----------
+
+  private removePreviewHtml(file: string, exists: boolean): string {
+    if (!exists) return `<div class="ap-missing">文件不存在（仅移除注册/关联）</div>`
+    if (isImage(file)) return `<img class="imp-preview" src="${encodeURI('/' + file)}" alt="">`
+    if (isAudio(file)) return `<audio class="imp-preview" controls src="${encodeURI('/' + file)}?t=${Date.now()}"></audio>`
+    return ''
+  }
+
+  /** 预览 + 明确确认；offerDelete 时提供"同时删除文件"勾选（默认勾上） */
+  private async confirmRemove(title: string, file: string, exists: boolean, detail: string, offerDelete: boolean): Promise<{ deleteFile: boolean } | null> {
+    const v = await showModal({
+      title,
+      bodyHtml:
+        this.removePreviewHtml(file, exists) +
+        `<div class="rm-detail">${esc(detail)}</div>` +
+        (file ? `<div class="rm-path">${esc(file)}</div>` : ''),
+      submitLabel: '确认移除',
+      fields: offerDelete && exists ? [{ key: 'del', label: '同时删除磁盘文件（不可恢复）', type: 'checkbox', value: true }] : [],
+    })
+    if (!v) return null
+    return { deleteFile: offerDelete && exists && v.del === 'true' }
+  }
+
+  private async deleteFileOnDisk(path: string): Promise<boolean> {
+    const r = (await (
+      await fetch('/api/asset/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        body: JSON.stringify({ path }),
+      })
+    ).json()) as { ok?: boolean; error?: string }
+    if (!r.ok) {
+      alert(`删除文件失败：${r.error ?? '未知错误'}`)
+      return false
+    }
+    return true
+  }
+
+  private async removeRegisteredFlow(kind: 'backgrounds' | 'bgm' | 'se', name: string, file: string, exists: boolean): Promise<void> {
+    const r = await this.confirmRemove(
+      `移除注册：${name}`, file, exists,
+      `将从 assets.yaml 移除注册名"${name}"；脚本中对它的引用会变成编译错误。注册表改动进编辑缓冲区（可撤销，保存后生效），文件删除立即生效。`,
+      true,
+    )
+    if (!r) return
+    removeAsset(await this.host.ensureModel('story/assets.yaml'), kind, name)
+    if (r.deleteFile) await this.deleteFileOnDisk(file)
+    this.host.onMutated()
+  }
+
+  private async removeVariantFlow(who: string, combo: string, file: string, exists: boolean): Promise<void> {
+    const r = await this.confirmRemove(
+      `移除变体：${who} · ${combo.split('|').join(' / ')}`, file, exists,
+      '将从 characters.yaml 移除该变体条目；脚本中用到该组合的演出会变成缺图警告。',
+      true,
+    )
+    if (!r) return
+    removeVariant(await this.host.ensureModel('story/characters.yaml'), who, combo)
+    if (r.deleteFile) await this.deleteFileOnDisk(file)
+    this.host.onMutated()
+  }
+
+  private async removeVoiceFlow(id: string, file: string, who: string, text: string): Promise<void> {
+    const brief = text.length > 30 ? text.slice(0, 30) + '…' : text
+    const r = await this.confirmRemove(
+      `删除录音：${id}`, file, true,
+      `删除后该句台词（${who}：${brief}）回到"待录"状态，voice.lock 中的条目一并清除。`,
+      false,
+    )
+    if (!r) return
+    if (await this.deleteFileOnDisk(file)) this.host.onMutated()
+  }
+
+  private async removeRefFlow(who: string, file: string, exists: boolean): Promise<void> {
+    const r = await this.confirmRemove(`移除参考图`, file, exists, `将解除与角色"${who}"的关联。`, true)
+    if (!r) return
+    removeRef(await this.host.ensureModel('story/characters.yaml'), who, file)
+    if (r.deleteFile) await this.deleteFileOnDisk(file)
+    this.host.onMutated()
+  }
+
+  private async removeTtsFlow(who: string, file: string, exists: boolean): Promise<void> {
+    const r = await this.confirmRemove(`移除音色样本`, file, exists, `将清除角色"${who}"的 tts.sample 引用（provider/params 保留）。`, true)
+    if (!r) return
+    clearTtsSample(await this.host.ensureModel('story/characters.yaml'), who)
+    if (r.deleteFile) await this.deleteFileOnDisk(file)
+    this.host.onMutated()
+  }
+
+  private async removeLooseFlow(file: string): Promise<void> {
+    const r = await this.confirmRemove(`删除文件`, file, true, '该文件未注册/未关联，将直接从磁盘删除。', false)
+    if (!r) return
+    if (await this.deleteFileOnDisk(file)) this.host.onMutated()
   }
 
   private showMenu(el: HTMLElement, x: number, y: number): void {
@@ -367,6 +506,58 @@ export class AssetPanel {
     else alert(`保存失败：${commit.error}`)
   }
 
+  // ---------- 素材导入（OS 拖入 / 浏览本机文件） ----------
+
+  private async importFromDisk(): Promise<void> {
+    const p = await pickPath({ title: '选择要导入的素材文件', mode: 'file', exts: [...IMG_EXTS, ...AUD_EXTS] })
+    if (p) await this.runImport({ kind: 'local', path: p })
+  }
+
+  private async runImport(src: ImportSource, defaultCategory?: string): Promise<void> {
+    const out = await importAssetFlow(src, defaultCategory)
+    if (!out) return
+    if (out.registerName) {
+      const kindMap: Record<string, 'backgrounds' | 'bgm' | 'se'> = { bg: 'backgrounds', bgm: 'bgm', se: 'se' }
+      const kind = kindMap[out.category.key]
+      if (kind) registerAsset(await this.host.ensureModel('story/assets.yaml'), kind, out.registerName, out.path)
+    }
+    this.host.onMutated()
+  }
+
+  /** 本机文件拷入项目，返回实际写入的项目内路径（重名自动改名） */
+  private async copyLocalIntoProject(src: string, to: string): Promise<string | null> {
+    const r = (await (
+      await fetch('/api/asset/import-local', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        body: JSON.stringify({ src, to }),
+      })
+    ).json()) as { ok?: boolean; path?: string; error?: string }
+    if (!r.ok || !r.path) {
+      alert(`拷贝失败：${r.error ?? '未知错误'}`)
+      return null
+    }
+    return r.path
+  }
+
+  /** "浏览本地文件…"动作：选中后回填 file 字段并在状态区预览；返回 pendingSrc 容器 */
+  private browseAction(exts: string[], fileFieldPrefix: string, pendingSrc: { current: string | null }): ModalAction {
+    return {
+      label: '📂 浏览本地文件…',
+      handler: async (_v, statusEl, ui) => {
+        const p = await pickPath({ title: '选择素材文件', mode: 'file', exts })
+        if (!p) return
+        pendingSrc.current = p
+        const clean = sanitizeFileName(p.split('/').pop()!)
+        ui.setField('file', fileFieldPrefix + clean)
+        const url = `/api/fs/file?path=${encodeURIComponent(p)}&t=${Date.now()}`
+        statusEl.innerHTML = isImage(p)
+          ? `<span class="m-ok">✓ 已选择，确定后拷入项目</span><br><img class="imp-preview" src="${url}" alt="">`
+          : `<span class="m-ok">✓ 已选择，确定后拷入项目</span><br><audio class="imp-preview" controls src="${url}"></audio>`
+      },
+    }
+  }
+
   // ---------- 新增（注册表条目） ----------
 
   private async openAdd(section: string): Promise<void> {
@@ -374,22 +565,31 @@ export class AssetPanel {
       const kindMap = { bg: 'backgrounds', bgm: 'bgm', se: 'se' } as const
       const labelMap = { bg: '背景', bgm: 'BGM', se: '音效' }
       const dirMap = { bg: 'bg/', bgm: 'bgm/', se: 'se/' }
+      const pendingSrc = { current: null as string | null }
       const v = await showModal({
         title: `新增${labelMap[section]}`,
         fields: [
           { key: 'name', label: '注册名（脚本中引用）', placeholder: '如 教室_白天' },
-          { key: 'file', label: '文件路径', placeholder: `${dirMap[section]}xxx.${section === 'bg' ? 'jpg' : 'ogg'}`, hint: '文件可以后补：缺失时游戏内占位渲染' },
+          { key: 'file', label: '文件路径', placeholder: `${dirMap[section]}xxx.${section === 'bg' ? 'jpg' : 'ogg'}`, hint: '文件可以后补（缺失时游戏内占位渲染），或点下方"浏览本地文件"选一个拷入项目' },
         ],
+        actions: [this.browseAction(section === 'bg' ? IMG_EXTS : AUD_EXTS, dirMap[section], pendingSrc)],
         validate: (v) => (!v.name ? '注册名必填' : !v.file.startsWith(dirMap[section]) ? `文件路径需以 ${dirMap[section]} 开头` : null),
       })
       if (!v) return
-      registerAsset(await this.host.ensureModel('story/assets.yaml'), kindMap[section], v.name, v.file)
+      let file = v.file
+      if (pendingSrc.current) {
+        const copied = await this.copyLocalIntoProject(pendingSrc.current, v.file)
+        if (!copied) return
+        file = copied
+      }
+      registerAsset(await this.host.ensureModel('story/assets.yaml'), kindMap[section], v.name, file)
       this.host.onMutated()
       return
     }
     if (section === 'sprite') {
       const NEW = '〈新建角色〉'
       const names = this.index!.characters.map((c) => c.name)
+      const pendingSrc = { current: null as string | null }
       const v = await showModal({
         title: '新增立绘变体 / 角色',
         fields: [
@@ -400,8 +600,9 @@ export class AssetPanel {
           { key: 'outfit', label: 'outfit 衣着', placeholder: '如 校服' },
           { key: 'state', label: 'state 状态（可空，多个用+连接）', placeholder: '如 淋湿' },
           { key: 'face', label: 'face 表情', placeholder: '如 默认' },
-          { key: 'file', label: '图片路径（sprite/ 下）', placeholder: 'xiaoman/seifuku_normal.png', hint: '留空 = 只建角色不加变体；文件可后补' },
+          { key: 'file', label: '图片路径（sprite/ 下）', placeholder: 'xiaoman/seifuku_normal.png', hint: '留空 = 只建角色不加变体；文件可后补，或"浏览本地文件"拷入（建议加角色子目录）' },
         ],
+        actions: [this.browseAction(IMG_EXTS, '', pendingSrc)],
         validate: (v) => {
           const isNew = v.who === NEW
           if (isNew && !v.newName) return '请填写新角色名'
@@ -415,12 +616,18 @@ export class AssetPanel {
       const who = v.who === NEW ? v.newName : v.who
       if (v.who === NEW) addCharacter(model, { name: who, color: v.color || undefined, voiced: v.voiced === 'true' })
       if (v.file) {
+        let file = v.file.startsWith('sprite/') ? v.file : `sprite/${v.file}`
+        if (pendingSrc.current) {
+          const copied = await this.copyLocalIntoProject(pendingSrc.current, file)
+          if (!copied) return
+          file = copied
+        }
         ensureSpriteDefault(model, who, v.outfit, v.face)
         registerVariant(model, who, {
           outfit: v.outfit,
           state: v.state ? v.state.split('+').map((s) => s.trim()).filter(Boolean) : [],
           face: v.face,
-          file: v.file.startsWith('sprite/') ? v.file : `sprite/${v.file}`,
+          file,
         })
       }
       this.host.onMutated()

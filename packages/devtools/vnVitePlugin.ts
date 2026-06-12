@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process'
 import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { extname, join } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path'
+import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import type { Plugin, ViteDevServer } from 'vite'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
@@ -9,8 +10,54 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
 
 const MIME: Record<string, string> = {
-  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif',
   '.ogg': 'audio/ogg', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.wav': 'audio/wav',
+}
+
+// ---------- 项目根目录：可在 UI 中切换，跨重启记忆 ----------
+
+const editorStatePath = join(homedir(), '.vn-editor.json')
+
+function isProjectDir(dir: string): boolean {
+  return existsSync(join(dir, 'story/story.yaml'))
+}
+
+function loadLastProject(): string | null {
+  try {
+    const s = JSON.parse(readFileSync(editorStatePath, 'utf8')) as { lastProject?: string }
+    return s.lastProject && isProjectDir(s.lastProject) ? s.lastProject : null
+  } catch {
+    return null
+  }
+}
+
+function saveLastProject(dir: string): void {
+  try {
+    writeFileSync(editorStatePath, JSON.stringify({ lastProject: dir }, null, 2), 'utf8')
+  } catch {
+    /* 记忆失败不影响功能 */
+  }
+}
+
+/** 项目内允许写入素材的相对路径（含子目录与媒体扩展名校验） */
+function safeAssetPath(p: string): boolean {
+  return (
+    /^(bg|bgm|se|sprite|voice|production)\//.test(p) &&
+    !p.includes('..') &&
+    !p.includes('\\') &&
+    Object.hasOwn(MIME, extname(p).toLowerCase())
+  )
+}
+
+/** 目标已存在时自动改名：xxx.png → xxx_2.png、xxx_3.png… */
+function dedupePath(absPath: string): string {
+  if (!existsSync(absPath)) return absPath
+  const ext = extname(absPath)
+  const stem = absPath.slice(0, -ext.length)
+  for (let i = 2; ; i++) {
+    const candidate = `${stem}_${i}${ext}`
+    if (!existsSync(candidate)) return candidate
+  }
 }
 
 interface CompilerMod {
@@ -103,12 +150,20 @@ export interface VnPluginOptions {
  * - GET  /api/files                剧本文件列表
  * - GET  /api/file?path=...        读文件
  * - PUT  /api/file {path,content}  写文件（限 story/ 下的 yaml）
+ * - GET  /api/project              当前项目信息；POST /api/project/open {path} 切换项目（记忆到 ~/.vn-editor.json）
+ * - GET  /api/fs/list?path=...     浏览本机目录（打开项目 / 导入素材用）
+ * - GET  /api/fs/file?path=...     本机媒体文件预览流（导入前试看/试听）
+ * - POST /api/asset/import?to=...  浏览器上传素材写入项目（拖入文件；重名自动加后缀）
+ * - POST /api/asset/import-local   {src,to} 本机文件拷入项目（浏览选中）
+ * - POST /api/asset/delete         {path} 删除项目内素材文件（voice/ 下会同步清 voice.lock）
  * - /sprite|bg|bgm|se|voice/**     从项目根伺服资产
  */
 export function vnPlugin(opts: VnPluginOptions): Plugin {
   return {
     name: 'vn-story',
     configureServer(server: ViteDevServer) {
+      // 当前项目根：上次打开的项目，否则本仓库自带的样例项目
+      let projectRoot = loadLastProject() ?? repoRoot
       let compiler: Promise<CompilerMod> | null = null
       const loadCompiler = (): Promise<CompilerMod> => {
         const entry = join(repoRoot, 'packages/compiler/src/index.ts').replaceAll('\\', '/')
@@ -117,7 +172,7 @@ export function vnPlugin(opts: VnPluginOptions): Plugin {
       }
 
       const overlayFiles = (m: CompilerMod, overrides: Record<string, string>): DiskFiles => {
-        const disk = new m.NodeFiles(repoRoot)
+        const disk = new m.NodeFiles(projectRoot)
         return {
           read: (p) => overrides[p] ?? disk.read(p),
           exists: (p) => overrides[p] !== undefined || disk.exists(p),
@@ -139,13 +194,15 @@ export function vnPlugin(opts: VnPluginOptions): Plugin {
         res.end(JSON.stringify(data))
       }
 
-      const readBody = (req: IncomingMessage): Promise<string> =>
-        new Promise((resolve, reject) => {
-          let s = ''
-          req.on('data', (c: Buffer) => (s += c.toString('utf8')))
-          req.on('end', () => resolve(s))
+      const readBodyBuffer = (req: IncomingMessage): Promise<Buffer> =>
+        new Promise((res2, reject) => {
+          const chunks: Buffer[] = []
+          req.on('data', (c: Buffer) => chunks.push(c))
+          req.on('end', () => res2(Buffer.concat(chunks)))
           req.on('error', reject)
         })
+
+      const readBody = (req: IncomingMessage): Promise<string> => readBodyBuffer(req).then((b) => b.toString('utf8'))
 
       const compileWith = async (overrides: Record<string, string>) => {
         const m = await loadCompiler()
@@ -159,6 +216,159 @@ export function vnPlugin(opts: VnPluginOptions): Plugin {
       server.middlewares.use((req, res, next) => {
         const url = (req.url ?? '').split('?')[0]
         const query = new URLSearchParams((req.url ?? '').split('?')[1] ?? '')
+
+        // ---------- 项目管理：查询当前项目 / 切换项目 ----------
+
+        if (url === '/api/project') {
+          json(res, 200, { root: projectRoot, name: basename(projectRoot), isDefault: projectRoot === repoRoot })
+          return
+        }
+
+        if (url === '/api/project/open' && req.method === 'POST') {
+          void readBody(req)
+            .then((body) => {
+              const { path } = JSON.parse(body) as { path: string }
+              const dir = resolve(path.startsWith('~') ? join(homedir(), path.slice(1)) : path)
+              if (!isAbsolute(dir) || !existsSync(dir) || !statSync(dir).isDirectory()) {
+                json(res, 400, { error: `目录不存在：${dir}` })
+                return
+              }
+              if (!isProjectDir(dir)) {
+                json(res, 400, { error: `不是 VN 项目（缺少 story/story.yaml）：${dir}` })
+                return
+              }
+              projectRoot = dir
+              saveLastProject(dir)
+              server.watcher.add(join(dir, 'story'))
+              json(res, 200, { ok: true, root: projectRoot, name: basename(projectRoot) })
+            })
+            .catch((err: unknown) => json(res, 500, { error: String(err) }))
+          return
+        }
+
+        // ---------- 本机文件系统：浏览目录 / 预览媒体文件（仅本机开发服务器使用） ----------
+
+        if (url === '/api/fs/list') {
+          const raw = query.get('path') || '~'
+          const dir = resolve(raw.startsWith('~') ? join(homedir(), raw.slice(1)) : raw)
+          if (!existsSync(dir) || !statSync(dir).isDirectory()) {
+            json(res, 200, { error: `目录不存在：${dir}`, path: dir, parent: null, dirs: [], files: [] })
+            return
+          }
+          const dirs: Array<{ name: string; isProject: boolean }> = []
+          const files: Array<{ name: string; size: number }> = []
+          try {
+            for (const e of readdirSync(dir, { withFileTypes: true })) {
+              if (e.name.startsWith('.')) continue
+              try {
+                if (e.isDirectory()) dirs.push({ name: e.name, isProject: isProjectDir(join(dir, e.name)) })
+                else if (e.isFile()) files.push({ name: e.name, size: statSync(join(dir, e.name)).size })
+              } catch {
+                /* 个别条目不可读（权限）→ 跳过 */
+              }
+            }
+          } catch (err) {
+            json(res, 200, { error: `目录不可读：${String(err)}`, path: dir, parent: null, dirs: [], files: [] })
+            return
+          }
+          const parent = dirname(dir)
+          json(res, 200, {
+            path: dir,
+            parent: parent === dir ? null : parent,
+            dirs: dirs.sort((a, b) => a.name.localeCompare(b.name)),
+            files: files.sort((a, b) => a.name.localeCompare(b.name)),
+          })
+          return
+        }
+
+        if (url === '/api/fs/file') {
+          const p = query.get('path') ?? ''
+          const mime = MIME[extname(p).toLowerCase()]
+          if (!isAbsolute(p) || !mime || !existsSync(p) || !statSync(p).isFile()) {
+            res.statusCode = 404
+            res.end('not found')
+            return
+          }
+          res.setHeader('Content-Type', mime)
+          res.setHeader('Cache-Control', 'no-store')
+          createReadStream(p).pipe(res)
+          return
+        }
+
+        // ---------- 素材导入：浏览器上传（拖入） / 本机拷贝（浏览选中） ----------
+
+        if (url === '/api/asset/import' && req.method === 'POST') {
+          const to = query.get('to') ?? ''
+          if (!safeAssetPath(to)) {
+            json(res, 400, { error: `无效目标路径：${to}` })
+            return
+          }
+          void readBodyBuffer(req)
+            .then((data) => {
+              if (!data.length) {
+                json(res, 400, { error: '文件内容为空' })
+                return
+              }
+              const abs = dedupePath(join(projectRoot, to))
+              mkdirSync(dirname(abs), { recursive: true })
+              writeFileSync(abs, data)
+              json(res, 200, { ok: true, path: abs.slice(projectRoot.length).replace(/^[/\\]/, '').replaceAll('\\', '/') })
+            })
+            .catch((err: unknown) => json(res, 500, { error: String(err) }))
+          return
+        }
+
+        if (url === '/api/asset/delete' && req.method === 'POST') {
+          void readBody(req)
+            .then((body) => {
+              const { path } = JSON.parse(body) as { path: string }
+              if (!safeAssetPath(path)) {
+                json(res, 400, { error: `无效路径：${path}` })
+                return
+              }
+              const abs = join(projectRoot, path)
+              let deleted = false
+              if (existsSync(abs) && statSync(abs).isFile()) {
+                unlinkSync(abs)
+                deleted = true
+              }
+              // 删语音文件时同步清掉 voice.lock 里引用它的条目，避免残留过期 hash
+              if (path.startsWith('voice/')) {
+                const lockPath = join(projectRoot, 'voice.lock')
+                if (existsSync(lockPath)) {
+                  const lock = (parseYaml(readFileSync(lockPath, 'utf8')) ?? {}) as Record<string, { file?: string }>
+                  const kept = Object.entries(lock).filter(([, v]) => v?.file !== path)
+                  if (kept.length !== Object.keys(lock).length) {
+                    writeFileSync(lockPath, stringifyYaml(Object.fromEntries(kept)), 'utf8')
+                  }
+                }
+              }
+              json(res, 200, { ok: true, deleted })
+            })
+            .catch((err: unknown) => json(res, 500, { error: String(err) }))
+          return
+        }
+
+        if (url === '/api/asset/import-local' && req.method === 'POST') {
+          void readBody(req)
+            .then((body) => {
+              const { src, to } = JSON.parse(body) as { src: string; to: string }
+              if (!isAbsolute(src) || !existsSync(src) || !statSync(src).isFile()) {
+                json(res, 400, { error: `源文件不存在：${src}` })
+                return
+              }
+              if (!safeAssetPath(to)) {
+                json(res, 400, { error: `无效目标路径：${to}` })
+                return
+              }
+              const abs = dedupePath(join(projectRoot, to))
+              mkdirSync(dirname(abs), { recursive: true })
+              copyFileSync(src, abs)
+              json(res, 200, { ok: true, path: abs.slice(projectRoot.length).replace(/^[/\\]/, '').replaceAll('\\', '/') })
+            })
+            .catch((err: unknown) => json(res, 500, { error: String(err) }))
+          return
+        }
 
         if (url === '/story.ir.json') {
           void compileWith({})
@@ -207,7 +417,7 @@ export function vnPlugin(opts: VnPluginOptions): Plugin {
               if (o.mode === 'zero_shot') fd.append('prompt_text', o.promptText ?? '')
               if (o.mode === 'instruct' && o.instruct) fd.append('instruct_text', o.instruct)
               if ((o.mode === 'zero_shot' || o.mode === 'instruct') && o.sample) {
-                const samplePath = join(repoRoot, o.sample)
+                const samplePath = join(projectRoot, o.sample)
                 if (!existsSync(samplePath)) {
                   json(res, 200, { ok: false, error: `音色参考音频不存在：${o.sample}` })
                   return
@@ -239,7 +449,7 @@ export function vnPlugin(opts: VnPluginOptions): Plugin {
               }
               const wav = bytes.toString('ascii', 0, 4) === 'RIFF' ? bytes : wrapPcmToWav(bytes, o.sampleRate ?? 24000)
               const durationMs = wavDurationMs(wav)
-              const previewDir = join(repoRoot, 'build/tts-preview')
+              const previewDir = join(projectRoot, 'build/tts-preview')
               mkdirSync(previewDir, { recursive: true })
               const safeName = o.previewName.replace(/[^\w-]/g, '_')
               const wavPath = join(previewDir, `${safeName}.wav`)
@@ -264,7 +474,7 @@ export function vnPlugin(opts: VnPluginOptions): Plugin {
                 json(res, 400, { error: 'invalid preview/id' })
                 return
               }
-              const src = join(repoRoot, 'build', preview)
+              const src = join(projectRoot, 'build', preview)
               if (!existsSync(src)) {
                 json(res, 400, { error: `试听文件不存在：${preview}` })
                 return
@@ -272,16 +482,16 @@ export function vnPlugin(opts: VnPluginOptions): Plugin {
               const ext = extname(preview)
               const dir = id.replace(/_\d+$/, '')
               const targetRel = `voice/${dir}/${id}${ext}`
-              mkdirSync(join(repoRoot, 'voice', dir), { recursive: true })
+              mkdirSync(join(projectRoot, 'voice', dir), { recursive: true })
               const m = await loadCompiler()
               // 清掉同 id 的其他扩展名旧文件，避免多扩展名探测歧义
               for (const e of m.VOICE_EXTS) {
-                const old = join(repoRoot, `voice/${dir}/${id}${e}`)
+                const old = join(projectRoot, `voice/${dir}/${id}${e}`)
                 if (e !== ext && existsSync(old)) unlinkSync(old)
               }
-              copyFileSync(src, join(repoRoot, targetRel))
+              copyFileSync(src, join(projectRoot, targetRel))
               // 更新 voice.lock：text_hash 用编译器同一实现，保证改稿检测一致
-              const lockPath = join(repoRoot, 'voice.lock')
+              const lockPath = join(projectRoot, 'voice.lock')
               const lock = (existsSync(lockPath) ? (parseYaml(readFileSync(lockPath, 'utf8')) ?? {}) : {}) as Record<string, unknown>
               lock[id] = { text_hash: m.textHash(text), file: targetRel, duration_ms: durationMs ?? undefined }
               writeFileSync(lockPath, stringifyYaml(lock), 'utf8')
@@ -292,7 +502,7 @@ export function vnPlugin(opts: VnPluginOptions): Plugin {
         }
 
         if (url.startsWith('/tts-preview/')) {
-          const file = join(repoRoot, 'build', decodeURIComponent(url.slice(1)))
+          const file = join(projectRoot, 'build', decodeURIComponent(url.slice(1)))
           if (existsSync(file) && statSync(file).isFile()) {
             res.setHeader('Content-Type', MIME[extname(file).toLowerCase()] ?? 'application/octet-stream')
             res.setHeader('Cache-Control', 'no-store') // 同名覆盖生成，禁止缓存
@@ -306,7 +516,7 @@ export function vnPlugin(opts: VnPluginOptions): Plugin {
 
         if (url === '/api/assets') {
           const walk = (dir: string, prefix: string): string[] => {
-            const full = join(repoRoot, dir)
+            const full = join(projectRoot, dir)
             if (!existsSync(full)) return []
             const out: string[] = []
             for (const e of readdirSync(full, { withFileTypes: true })) {
@@ -324,8 +534,8 @@ export function vnPlugin(opts: VnPluginOptions): Plugin {
         }
 
         if (url === '/api/files') {
-          const scenes = existsSync(join(repoRoot, 'story/scenes'))
-            ? readdirSync(join(repoRoot, 'story/scenes'))
+          const scenes = existsSync(join(projectRoot, 'story/scenes'))
+            ? readdirSync(join(projectRoot, 'story/scenes'))
                 .filter((f) => /\.ya?ml$/.test(f))
                 .map((f) => `story/scenes/${f}`)
             : []
@@ -335,11 +545,11 @@ export function vnPlugin(opts: VnPluginOptions): Plugin {
 
         if (url === '/api/file' && req.method === 'GET') {
           const p = query.get('path') ?? ''
-          if (!safeYamlPath(p) || !existsSync(join(repoRoot, p))) {
+          if (!safeYamlPath(p) || !existsSync(join(projectRoot, p))) {
             json(res, 404, { error: `not found: ${p}` })
             return
           }
-          json(res, 200, { path: p, content: readFileSync(join(repoRoot, p), 'utf8') })
+          json(res, 200, { path: p, content: readFileSync(join(projectRoot, p), 'utf8') })
           return
         }
 
@@ -351,7 +561,7 @@ export function vnPlugin(opts: VnPluginOptions): Plugin {
                 json(res, 400, { error: `invalid path: ${path}` })
                 return
               }
-              writeFileSync(join(repoRoot, path), content, 'utf8')
+              writeFileSync(join(projectRoot, path), content, 'utf8')
               json(res, 200, { ok: true })
             })
             .catch((err: unknown) => json(res, 500, { error: String(err) }))
@@ -359,7 +569,7 @@ export function vnPlugin(opts: VnPluginOptions): Plugin {
         }
 
         if (/^\/(sprite|bg|bgm|se|voice|production)\//.test(url)) {
-          const file = join(repoRoot, decodeURIComponent(url))
+          const file = join(projectRoot, decodeURIComponent(url))
           if (existsSync(file) && statSync(file).isFile()) {
             res.setHeader('Content-Type', MIME[extname(file).toLowerCase()] ?? 'application/octet-stream')
             createReadStream(file).pipe(res)
@@ -374,7 +584,7 @@ export function vnPlugin(opts: VnPluginOptions): Plugin {
       })
 
       if (opts.reloadOnYamlChange) {
-        server.watcher.add(join(repoRoot, 'story'))
+        server.watcher.add(join(projectRoot, 'story'))
         server.watcher.on('all', (_event, file) => {
           const f = file.replaceAll('\\', '/')
           if (f.includes('/story/') && /\.ya?ml$/.test(f)) {

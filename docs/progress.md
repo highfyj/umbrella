@@ -57,7 +57,9 @@ packages/
   player/     Web 播放器；Game 类可挂任意容器（编辑器预览复用）
   editor/     Monaco 编辑器：实时语义诊断(叠加编译)、资产面板、TTS、流程图
   devtools/   共享 Vite 插件：现场编译、/api/compile(叠加)、文件读写、资产扫描、
-              TTS 代理(probe/generate/commit)、资产静态伺服
+              TTS 代理(probe/generate/commit)、资产静态伺服、
+              项目切换(/api/project*，记忆于 ~/.vn-editor.json)、
+              本机目录浏览与媒体预览(/api/fs/*)、素材导入(/api/asset/import*)
 ```
 
 ## 5. 关键设计决策（为什么是这样）
@@ -78,6 +80,7 @@ packages/
   端点路径可在设置 UI 直接改；字段名不同则需在 `packages/devtools/vnVitePlugin.ts` 的
   `/api/tts/generate` 处加适配。
 - TTS 设置存浏览器 localStorage（机器本地，换机器要重配）。
+- 浏览器自动播放策略：无用户手势时 BGM 起播会被拦，播放器会在下一次点击/按键时自动补播（编辑器保存后重启预览同理，继续打字或点预览即可听到）。
 - 角色立绘变体的 `state` 当前在 IR comboKey 中以排序后 `+` 连接（`校服|淋湿|微笑`）。
 - 编辑器保存（Ctrl+S）= 写盘 + 重启预览（从头开始）；"从当前场景重播"未做。
 - Windows PowerShell 5.1 直接调 `/api/file` 测试时注意 UTF-8（服务端已声明 charset；浏览器无此问题）。

@@ -61,8 +61,7 @@ export class Game {
     this.disposed = true
     if (this.typing) clearInterval(this.typing.timer)
     window.removeEventListener('keydown', this.keyHandler)
-    this.audio.stopVoice()
-    this.audio.stopBgm()
+    this.audio.dispose()
     this.mount.replaceChildren()
   }
 
@@ -83,6 +82,7 @@ export class Game {
           <button data-act="save">存档</button>
           <button data-act="load">读档</button>
           <button data-act="restart">重来</button>
+          <button data-act="mute"></button>
           <button data-act="hud">HUD</button>
         </div>
         <div class="vn-hud"></div>
@@ -106,6 +106,16 @@ export class Game {
     q('[data-act="save"]').addEventListener('click', () => this.quickSave())
     q('[data-act="load"]').addEventListener('click', () => this.quickLoad())
     q('[data-act="restart"]').addEventListener('click', () => this.restart())
+    const muteBtn = q('[data-act="mute"]')
+    const renderMute = (): void => {
+      muteBtn.textContent = this.audio.muted ? '🔇 已静音' : '🔊 声音'
+      muteBtn.classList.toggle('vn-muted', this.audio.muted)
+    }
+    renderMute()
+    muteBtn.addEventListener('click', () => {
+      this.audio.setMuted(!this.audio.muted)
+      renderMute()
+    })
     q('[data-act="hud"]').addEventListener('click', () => this.hudEl.classList.toggle('on'))
     if (this.warningCount > 0) this.hudEl.classList.add('on')
   }

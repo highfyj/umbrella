@@ -5,6 +5,7 @@ import type { StoryIR } from '@vn/core'
 import { renderGraph } from './graph.js'
 import { AssetPanel, DRAG_MIME } from './assetPanel.js'
 import { CursorPreview } from './cursorPreview.js'
+import { pickPath } from './fsBrowser.js'
 import { openTtsSettings } from './ttsSettings.js'
 
 interface Diag {
@@ -25,6 +26,7 @@ app.innerHTML = `
   <div id="editor-app">
     <div id="toolbar">
       <span class="brand">VN 编辑器</span>
+      <button id="btn-project" title="切换到另一个项目目录">📂 <span id="project-name">…</span></button>
       <button id="btn-save" class="primary" title="Ctrl+S">保存并更新预览</button>
       <button id="btn-restart">重启预览</button>
       <button id="btn-view">流程图</button>
@@ -321,7 +323,40 @@ new CursorPreview(editor, () => lastGood?.ir ?? null)
 
 // ---------- 工具栏、标签页与快捷键 ----------
 
+// ---------- 项目切换 ----------
+
+async function loadProjectInfo(): Promise<void> {
+  try {
+    const p = (await (await fetch('/api/project')).json()) as { root: string; name: string }
+    const el = document.getElementById('project-name')!
+    el.textContent = p.name
+    document.getElementById('btn-project')!.title = `当前项目：${p.root}\n点击切换到另一个项目目录`
+  } catch {
+    /* 服务暂不可用时保持占位 */
+  }
+}
+
+async function openProject(): Promise<void> {
+  if (dirty.size && !confirm('有未保存的修改，切换项目将丢弃。继续？')) return
+  const dir = await pickPath({ title: '打开项目（选择含 story/story.yaml 的目录）', mode: 'dir' })
+  if (!dir) return
+  const r = (await (
+    await fetch('/api/project/open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ path: dir }),
+    })
+  ).json()) as { ok?: boolean; error?: string }
+  if (!r.ok) {
+    alert(`打开项目失败：${r.error ?? '未知错误'}`)
+    return
+  }
+  dirty.clear() // 已确认丢弃；清掉避免 beforeunload 再拦一次
+  location.reload() // 全量重载：编辑器状态（model/预览/资产面板）全部按新项目重建
+}
+
 const viewBtn = document.getElementById('btn-view')!
+document.getElementById('btn-project')!.addEventListener('click', () => void openProject())
 document.getElementById('btn-save')!.addEventListener('click', () => void saveDirty())
 document.getElementById('btn-restart')!.addEventListener('click', () => restartPreview())
 document.getElementById('btn-tts')!.addEventListener('click', () => void openTtsSettings())
@@ -360,6 +395,7 @@ function escapeHtml(s: string): string {
 // ---------- 启动 ----------
 
 async function boot(): Promise<void> {
+  void loadProjectInfo()
   await loadFileList()
   const firstScene = fileList.find((f) => f.includes('/scenes/')) ?? fileList[0]
   if (firstScene) await openFile(firstScene)

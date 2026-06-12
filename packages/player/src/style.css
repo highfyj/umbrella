@@ -181,6 +181,7 @@ body,
   cursor: pointer;
 }
 .vn-menu button:hover { background: rgba(255, 255, 255, 0.15); }
+.vn-menu button.vn-muted { color: #ffc878; border-color: rgba(255, 200, 120, 0.5); }
 
 .vn-hud {
   position: absolute;

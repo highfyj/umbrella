@@ -1,4 +1,5 @@
 import { parseDocument, YAMLSeq } from 'yaml'
+import { comboKey } from '@vn/core'
 import type { editor as monacoEditor } from 'monaco-editor'
 
 type Model = monacoEditor.ITextModel
@@ -83,6 +84,46 @@ export function addRef(model: Model, char: string, path: string): void {
 export function setTtsSample(model: Model, char: string, samplePath: string): void {
   editYamlModel(model, (doc) => {
     doc.setIn(['characters', char, 'production', 'tts', 'sample'], samplePath)
+  })
+}
+
+/** assets.yaml：移除背景/BGM/SE 注册条目 */
+export function removeAsset(model: Model, kind: 'backgrounds' | 'bgm' | 'se', name: string): void {
+  editYamlModel(model, (doc) => {
+    doc.deleteIn([kind, name])
+  })
+}
+
+/** characters.yaml：按 comboKey 移除立绘变体条目 */
+export function removeVariant(model: Model, char: string, combo: string): void {
+  editYamlModel(model, (doc) => {
+    const seq = doc.getIn(['characters', char, 'sprite', 'variants'])
+    if (!(seq instanceof YAMLSeq)) return
+    const idx = seq.items.findIndex((item) => {
+      const v = ((item as { toJSON?: () => unknown }).toJSON?.() ?? {}) as { outfit?: string; state?: string | string[]; face?: string }
+      const state = Array.isArray(v.state) ? v.state : v.state ? [v.state] : []
+      return comboKey(v.outfit ?? '', state, v.face ?? '') === combo
+    })
+    if (idx >= 0) seq.delete(idx)
+  })
+}
+
+/** characters.yaml：解除参考图与角色的关联 */
+export function removeRef(model: Model, char: string, path: string): void {
+  editYamlModel(model, (doc) => {
+    const p = ['characters', char, 'production', 'refs']
+    const seq = doc.getIn(p)
+    if (!(seq instanceof YAMLSeq)) return
+    const idx = seq.items.findIndex((i) => (i as { value?: unknown }).value === path)
+    if (idx >= 0) seq.delete(idx)
+    if (!seq.items.length) doc.deleteIn(p)
+  })
+}
+
+/** characters.yaml：清除角色的 TTS 音色文件引用（provider/params 保留） */
+export function clearTtsSample(model: Model, char: string): void {
+  editYamlModel(model, (doc) => {
+    doc.deleteIn(['characters', char, 'production', 'tts', 'sample'])
   })
 }
 

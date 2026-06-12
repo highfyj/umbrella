@@ -10,17 +10,27 @@ export interface ModalField {
   hint?: string
 }
 
+export interface ModalUi {
+  /** 程序化回填字段（如"浏览本地文件"选中后写入路径） */
+  setField(key: string, value: string): void
+  statusEl: HTMLElement
+}
+
 export interface ModalAction {
   label: string
   /** 返回 false 可在动作区显示错误而不关闭 */
-  handler: (values: Record<string, string>, statusEl: HTMLElement) => void | Promise<void>
+  handler: (values: Record<string, string>, statusEl: HTMLElement, ui: ModalUi) => void | Promise<void>
 }
 
 export interface ModalOptions {
   title: string
+  /** 标题下方的自由 HTML 区（如导入预览）；调用方负责转义 */
+  bodyHtml?: string
   fields: ModalField[]
   submitLabel?: string
   actions?: ModalAction[]
+  /** 字段值变化回调（select/input 的 change） */
+  onChange?: (key: string, values: Record<string, string>, ui: ModalUi) => void
   /** 校验：返回错误信息阻止提交 */
   validate?: (values: Record<string, string>) => string | null
 }
@@ -32,6 +42,7 @@ export function showModal(opts: ModalOptions): Promise<Record<string, string> | 
     overlay.innerHTML = `
       <div class="modal">
         <div class="m-title">${esc(opts.title)}</div>
+        ${opts.bodyHtml ? `<div class="m-body">${opts.bodyHtml}</div>` : ''}
         <div class="m-fields">
           ${opts.fields.map(fieldHtml).join('')}
         </div>
@@ -57,8 +68,23 @@ export function showModal(opts: ModalOptions): Promise<Record<string, string> | 
     }
 
     const close = (result: Record<string, string> | null): void => {
+      overlay.querySelectorAll('audio').forEach((a) => a.pause())
       overlay.remove()
       resolve(result)
+    }
+
+    const ui: ModalUi = {
+      setField: (key, value) => {
+        const el = overlay.querySelector<HTMLInputElement>(`[name="${key}"]`)
+        if (el) el.value = value
+      },
+      statusEl,
+    }
+
+    if (opts.onChange) {
+      for (const f of opts.fields) {
+        overlay.querySelector(`[name="${f.key}"]`)?.addEventListener('change', () => opts.onChange!(f.key, values(), ui))
+      }
     }
 
     overlay.querySelector('.m-cancel')!.addEventListener('click', () => close(null))
@@ -76,7 +102,7 @@ export function showModal(opts: ModalOptions): Promise<Record<string, string> | 
     })
     overlay.querySelectorAll<HTMLElement>('.m-action').forEach((btn) => {
       btn.addEventListener('click', () => {
-        void opts.actions![Number(btn.dataset.i)].handler(values(), statusEl)
+        void opts.actions![Number(btn.dataset.i)].handler(values(), statusEl, ui)
       })
     })
     overlay.querySelector<HTMLElement>('input, textarea, select')?.focus()
