@@ -56,7 +56,7 @@ export async function generateImageFlow(opts: GenFlowOpts): Promise<string | nul
     title: opts.title,
     submitLabel: '使用选中候选',
     fields: [
-      { key: 'prompt', label: '提示词（已含预置，可编辑）', type: 'textarea', value: initialPrompt },
+      { key: 'prompt', label: '描述（喂入工作流模板的 {desc}，已含预置词，可编辑）', type: 'textarea', value: initialPrompt },
       ...(opts.ref ? [{ key: 'ref', label: '参考图', value: opts.ref, hint: '生成时作为 {ref} 传入（带参考图命令模板）' } as const] : []),
       { key: 'size', label: '尺寸', value: s.size },
       { key: 'count', label: '抽卡次数（候选数 1–8）', type: 'number', value: s.gachaCount },
@@ -82,7 +82,8 @@ export async function generateImageFlow(opts: GenFlowOpts): Promise<string | nul
                 headers: { 'Content-Type': 'application/json; charset=utf-8' },
                 body: JSON.stringify({
                   flow: opts.flow,
-                  prompt: v.prompt,
+                  desc: v.prompt,
+                  promptTemplate: cur.promptTemplate,
                   ref: opts.ref ?? '',
                   count: Number(v.count) || cur.gachaCount,
                   size: v.size || cur.size,

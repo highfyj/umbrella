@@ -82,11 +82,17 @@ packages/
   `tts_text/prompt_text/prompt_wav` 字段、裸 PCM 流）。若实际部署（CosyVoice3）接口不同：
   端点路径可在设置 UI 直接改；字段名不同则需在 `packages/devtools/vnVitePlugin.ts` 的
   `/api/tts/generate` 处加适配。
-- **codex image2 / rembg 命令形态未实测**：默认模板
-  `codex image2 --size {size} --output {out} --prompt {prompt}` 与 `rembg i {in} {out}` 为合理猜测，
-  在编辑器"图片设置"里可改并"测试可达性"。约定：命令必须把图片**写到 {out} 指定路径**（生成后按该路径存在性判定成功）。
-  若 codex 实际把图写到别处或走 stdout，需调整模板或在 `/api/img/generate` 处加适配。
-  生图/抠图均在本机同步执行（spawn），抽卡 N 次是串行循环，较慢。
+- **生图用 codex exec（agent 工作流），不是 image2**：codex CLI 没有 image2 子命令——它是编码 agent，
+  `-i/--image` 只是给输入附图。正确方式（用户确认）是把 codex 当 agent 跑：
+  `codex exec --sandbox workspace-write --skip-git-repo-check -C {cwd} [--image {ref}] {prompt}`，
+  其中 {prompt} 是固定的"工作流提示词模板"（$imagegen，含 {desc}/{out}/{size}），由服务端逐张把 {out}
+  填成 build/img-preview 下的绝对路径，agent 据此把图存到该路径并输出 JSON{path,prompt,notes}；
+  服务端按 {out} 存在性判定成功。命令模板/提示词模板都在"图片设置"里可改。
+  注意：codex exec 是 agent 工作流而非图片服务，单次较慢且 **spawnSync 同步执行会阻塞 dev server**，
+  故抽卡默认 1、串行（一次一个任务）；要真正出图，codex 侧需具备图像生成能力（$imagegen 工作流/对应工具）。
+- **本机当前无可用生图后端**：codex 装了但其 agent 能否产出 PNG 取决于 $imagegen 工作流配置；
+  且本机无 OPENAI_API_KEY、未装 openai 包、无本地 SD（7860/8188/8000 无响应）。换机后需先确认 codex 能出图。
+- **rembg**：默认 `rembg i {in} {out}`，立绘流程自动串接；无 rembg 时抠图失败但保留原图（不阻断）。
 - TTS 设置存浏览器 localStorage（机器本地，换机器要重配）。
 - 浏览器自动播放策略：无用户手势时 BGM 起播会被拦，播放器会在下一次点击/按键时自动补播（编辑器保存后重启预览同理，继续打字或点预览即可听到）。
 - 角色立绘变体的 `state` 当前在 IR comboKey 中以排序后 `+` 连接（`校服|淋湿|微笑`）。

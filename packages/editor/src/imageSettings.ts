@@ -1,9 +1,12 @@
 import { showModal } from './modal.js'
 
 /**
- * 生图接入配置：目前支持本地 codex CLI（image2）+ rembg 抠图。
- * 命令为模板字符串（占位符 {prompt} {out} {ref} {size}），未知/异构 CLI 由用户改模板适配，
- * 与 TTS 的"可配置 + 可达性测试"思路一致。provider 字段为将来接入别的生图方案预留。
+ * 生图接入配置：用 codex 作为 agent 工作流（codex exec）出图 + rembg 抠图。
+ * - 命令模板占位符：{cwd}（项目根）{prompt}（完整工作流提示词，单参数不拆）{ref}（参考图绝对路径）
+ * - 提示词模板（promptTemplate，即 $imagegen 工作流模板）占位符：{desc}{out}{size}{ref}；
+ *   服务端逐张把 {out} 填成绝对路径，codex agent 据此把图存到该路径并输出 JSON。
+ * codex exec 是 agent 工作流而非图片服务：单次较慢，生成串行（一次一个任务）。
+ * provider 字段为将来接入别的生图方案预留；命令/模板均可在本对话框改写适配。
  */
 export interface ImageSettings {
   provider: 'codex'
@@ -11,13 +14,15 @@ export interface ImageSettings {
   genCommand: string
   /** 带参考图时的生图命令模板（含 {ref}）；留空则忽略参考图用 genCommand */
   genCommandRef: string
+  /** 工作流提示词模板（$imagegen）：{desc} 用户描述、{out} 绝对输出路径、{size} 尺寸、{ref} 参考图 */
+  promptTemplate: string
   /** 抠图命令模板（{in} 输入、{out} 输出透明 PNG） */
   rembgCommand: string
-  /** 抽卡次数：一次生成的候选数量 */
+  /** 抽卡次数：一次生成的候选数量（codex agent 较慢，默认 1） */
   gachaCount: number
   /** 默认出图尺寸 */
   size: string
-  /** 三类流程的预置提示词（生成对话框预填，可现场编辑） */
+  /** 三类流程的预置提示词（生成对话框预填到 {desc}，可现场编辑） */
   presets: {
     sprite: string
     bg: string
@@ -29,10 +34,12 @@ const KEY = 'vn-image-settings'
 
 export const IMAGE_DEFAULTS: ImageSettings = {
   provider: 'codex',
-  genCommand: 'codex image2 --size {size} --output {out} --prompt {prompt}',
-  genCommandRef: 'codex image2 --size {size} --image {ref} --output {out} --prompt {prompt}',
+  genCommand: 'codex exec --sandbox workspace-write --skip-git-repo-check -C {cwd} {prompt}',
+  genCommandRef: 'codex exec --sandbox workspace-write --skip-git-repo-check -C {cwd} --image {ref} {prompt}',
+  promptTemplate:
+    '生成视觉小说素材：{desc}。目标尺寸约 {size}。请把生成的 PNG 图片保存到绝对路径 {out}（目录不存在则创建），完成后只输出一行 JSON：{path, prompt, notes}。',
   rembgCommand: 'rembg i {in} {out}',
-  gachaCount: 4,
+  gachaCount: 1,
   size: '1024x1536',
   presets: {
     sprite:
@@ -59,14 +66,15 @@ export function saveImageSettings(s: ImageSettings): void {
 export async function openImageSettings(): Promise<boolean> {
   const s = loadImageSettings()
   const result = await showModal({
-    title: '生图接入设置（codex image2 + rembg）',
+    title: '生图接入设置（codex exec 工作流 + rembg）',
     submitLabel: '保存',
     fields: [
-      { key: 'genCommand', label: '生图命令（无参考图）', value: s.genCommand, hint: '占位符：{prompt} {out} {size} {n}；含空格/中文的提示词不会被拆开' },
+      { key: 'genCommand', label: '生图命令（无参考图）', value: s.genCommand, hint: '占位符：{cwd} 项目根、{prompt} 完整工作流提示词（单参数不拆）；codex exec 是 agent 工作流' },
       { key: 'genCommandRef', label: '生图命令（带参考图）', value: s.genCommandRef, hint: '额外占位符 {ref}（参考图绝对路径）；留空则忽略参考图' },
+      { key: 'promptTemplate', label: '工作流提示词模板（$imagegen）', type: 'textarea', value: s.promptTemplate, hint: '占位符：{desc} 用户描述、{out} 绝对输出路径、{size}、{ref}；必须含 {out} 让 agent 知道存哪' },
       { key: 'rembgCommand', label: '抠图命令（rembg）', value: s.rembgCommand, hint: '占位符：{in} 输入、{out} 输出透明 PNG' },
       { key: 'size', label: '默认出图尺寸', value: s.size, placeholder: '1024x1536' },
-      { key: 'gachaCount', label: '抽卡次数（一次生成候选数 1–8）', type: 'number', value: s.gachaCount },
+      { key: 'gachaCount', label: '抽卡次数（候选数 1–8；codex agent 较慢，建议 1–2）', type: 'number', value: s.gachaCount },
       { key: 'presetSprite', label: '立绘预置提示词', type: 'textarea', value: s.presets.sprite },
       { key: 'presetBg', label: '背景预置提示词', type: 'textarea', value: s.presets.bg },
       { key: 'presetBase', label: '基准图预置提示词', type: 'textarea', value: s.presets.base },
@@ -95,7 +103,8 @@ export async function openImageSettings(): Promise<boolean> {
     ],
     validate: (v) => {
       const n = Number(v.gachaCount)
-      if (!v.genCommand.includes('{prompt}') || !v.genCommand.includes('{out}')) return '生图命令必须含 {prompt} 与 {out}'
+      if (!v.genCommand.includes('{prompt}')) return '生图命令必须含 {prompt}'
+      if (!v.promptTemplate.includes('{out}')) return '工作流提示词模板必须含 {out}（agent 据此保存图片）'
       if (!v.rembgCommand.includes('{in}') || !v.rembgCommand.includes('{out}')) return '抠图命令必须含 {in} 与 {out}'
       if (!Number.isFinite(n) || n < 1 || n > 8) return '抽卡次数需在 1–8 之间'
       return null
@@ -106,8 +115,9 @@ export async function openImageSettings(): Promise<boolean> {
     provider: 'codex',
     genCommand: result.genCommand.trim(),
     genCommandRef: result.genCommandRef.trim(),
+    promptTemplate: result.promptTemplate.trim(),
     rembgCommand: result.rembgCommand.trim(),
-    gachaCount: Math.max(1, Math.min(8, Number(result.gachaCount) || 4)),
+    gachaCount: Math.max(1, Math.min(8, Number(result.gachaCount) || 1)),
     size: result.size.trim() || '1024x1536',
     presets: { sprite: result.presetSprite, bg: result.presetBg, base: result.presetBase },
   })

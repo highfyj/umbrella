@@ -154,7 +154,10 @@ function buildArgs(template: string, vars: Record<string, string>): string[] {
 }
 
 function quoteArg(a: string): string {
-  return process.platform === 'win32' ? `"${a.replace(/"/g, '""')}"` : `'${a.replace(/'/g, `'\\''`)}'`
+  if (process.platform !== 'win32') return `'${a.replace(/'/g, `'\\''`)}'`
+  // 仅对需要的 token 加引号：cmd.exe 会再解析一层，给 --sandbox 之类简单参数加引号会让
+  // codex 收到带引号的值（如 "workspace-write"）从而 clap 解析失败（exit 2）
+  return a === '' || /[\s"&|<>^()]/.test(a) ? `"${a.replace(/"/g, '""')}"` : a
 }
 
 interface ToolResult {
@@ -166,7 +169,9 @@ interface ToolResult {
 
 /** 运行本地 CLI：先直接 spawn；ENOENT（多为 Windows 的 .cmd/.bat）回退 shell 模式 */
 function runTool(cmd: string, args: string[], cwd: string, timeout: number): ToolResult {
-  const opts = { cwd, timeout, encoding: 'utf8' as const, maxBuffer: 64 * 1024 * 1024 }
+  // input: '' 给子进程一个立即 EOF 的空 stdin——codex exec 见到管道 stdin 会一直读到 EOF，
+  // 不喂 EOF 就会卡在 "Reading additional input from stdin..." 永不返回
+  const opts = { cwd, timeout, encoding: 'utf8' as const, maxBuffer: 64 * 1024 * 1024, input: '' }
   let r = spawnSync(cmd, args, opts)
   if (r.error && (r.error as NodeJS.ErrnoException).code === 'ENOENT') {
     const line = [cmd, ...args].map(quoteArg).join(' ')
@@ -197,11 +202,18 @@ function probeTool(command: string, _cwd: string): { ok: boolean; detail: string
 
 export interface ImgGenerateRequest {
   flow: 'sprite' | 'bg' | 'base'
-  prompt: string
+  /** 用户填写的本张图描述（喂给 promptTemplate 的 {desc}） */
+  desc: string
+  /**
+   * 工作流提示词模板（$imagegen）：占位符 {desc} {out} {size} {ref}。
+   * 由服务端按候选逐个填充 {out}（绝对路径），codex agent 据此把图存到该路径。
+   */
+  promptTemplate: string
   /** 参考图：项目内相对路径（可选） */
   ref?: string
   count: number
   size: string
+  /** 命令模板：占位符 {cwd}（项目根）{prompt}（完整工作流提示词）{ref}（参考图绝对路径） */
   genCommand: string
   genCommandRef: string
   rembgCommand: string
@@ -632,12 +644,19 @@ export function vnPlugin(opts: VnPluginOptions): Plugin {
                 const stem = `${safeName}_${i}`
                 const outAbs = join(previewDir, `${stem}.png`)
                 if (existsSync(outAbs)) unlinkSync(outAbs)
-                const args = buildArgs(template, { prompt: o.prompt, out: outAbs, ref: absRef, size: o.size, n: '1' })
+                // 工作流提示词：把绝对输出路径/尺寸/描述填进模板（agent 据此存图）
+                const prompt = o.promptTemplate
+                  .replaceAll('{desc}', o.desc)
+                  .replaceAll('{out}', outAbs)
+                  .replaceAll('{size}', o.size)
+                  .replaceAll('{ref}', absRef)
+                const args = buildArgs(template, { prompt, cwd: projectRoot, out: outAbs, ref: absRef, size: o.size, n: '1' })
                 if (!args.length) {
                   candidates.push({ error: '生图命令为空' })
                   continue
                 }
-                const r = runTool(args[0], args.slice(1), projectRoot, 300000)
+                // codex 等 agent 工作流单次可能较慢；串行执行（一次一个任务）
+                const r = runTool(args[0], args.slice(1), projectRoot, 600000)
                 if (r.notFound) {
                   candidates.push({ error: `找不到生图命令：${args[0]}` })
                   continue
