@@ -55,6 +55,7 @@ export async function generateImageFlow(opts: GenFlowOpts): Promise<string | nul
   const result = await showModal({
     title: opts.title,
     submitLabel: '使用选中候选',
+    backdropClose: false, // 编辑长提示词/拖选/抽卡耗时，禁止点窗外误关
     fields: [
       { key: 'prompt', label: '描述（喂入工作流模板的 {desc}，已含预置词，可编辑）', type: 'textarea', value: initialPrompt },
       ...(opts.ref ? [{ key: 'ref', label: '参考图', value: opts.ref, hint: '生成时作为 {ref} 传入（带参考图命令模板）' } as const] : []),
@@ -121,6 +122,7 @@ export async function matteFlow(src: string, name: string): Promise<string | nul
     title: `抠图去背景：${src.split('/').pop()}`,
     bodyHtml: `<div class="rm-detail">对该图运行 rembg 去背景，生成透明 PNG。原图：</div><img class="imp-preview" src="/${esc(src)}?t=${Date.now()}" alt="">`,
     submitLabel: '使用抠图结果',
+    backdropClose: false,
     fields: [],
     actions: [
       {

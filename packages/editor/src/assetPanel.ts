@@ -442,6 +442,7 @@ export class AssetPanel {
     const result = await showModal({
       title: `TTS 生成：${d.id}（${d.who}）`,
       submitLabel: '保存/替换',
+      backdropClose: false,
       fields: [
         { key: 'text', label: '台词文本', type: 'textarea', value: d.text ?? '', hint: '可微调读法（如插入逗号控制停顿）；存档的改稿检测以脚本原文为准' },
         { key: 'mode', label: '生成模式', type: 'select', value: String(params.mode ?? settings.mode), options: ['zero_shot', 'sft', 'instruct'] },

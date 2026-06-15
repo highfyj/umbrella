@@ -33,6 +33,8 @@ export interface ModalOptions {
   onChange?: (key: string, values: Record<string, string>, ui: ModalUi) => void
   /** 校验：返回错误信息阻止提交 */
   validate?: (values: Record<string, string>) => string | null
+  /** 点击窗外背景是否关闭（默认 true）；AI 生成等怕误操作的场景设 false */
+  backdropClose?: boolean
 }
 
 export function showModal(opts: ModalOptions): Promise<Record<string, string> | null> {
@@ -67,7 +69,9 @@ export function showModal(opts: ModalOptions): Promise<Record<string, string> | 
       return out
     }
 
+    let cleanupKeys: (() => void) | null = null
     const close = (result: Record<string, string> | null): void => {
+      cleanupKeys?.()
       overlay.querySelectorAll('audio').forEach((a) => a.pause())
       overlay.remove()
       resolve(result)
@@ -88,9 +92,23 @@ export function showModal(opts: ModalOptions): Promise<Record<string, string> | 
     }
 
     overlay.querySelector('.m-cancel')!.addEventListener('click', () => close(null))
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) close(null)
+    // 仅当"按下"就发生在背景上才允许背景关闭：避免在输入框内拖选文本、松手到窗外时误关
+    let pressedOnBackdrop = false
+    overlay.addEventListener('mousedown', (e) => {
+      pressedOnBackdrop = e.target === overlay
     })
+    overlay.addEventListener('click', (e) => {
+      if (opts.backdropClose === false) return
+      if (e.target === overlay && pressedOnBackdrop) close(null)
+    })
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        close(null)
+      }
+    }
+    document.addEventListener('keydown', onKey, true)
+    cleanupKeys = () => document.removeEventListener('keydown', onKey, true)
     overlay.querySelector('.m-submit')!.addEventListener('click', () => {
       const v = values()
       const err = opts.validate?.(v)

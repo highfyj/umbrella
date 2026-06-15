@@ -52,6 +52,7 @@ export async function openTtsSettings(): Promise<boolean> {
   const result = await showModal({
     title: 'TTS 接入设置（CosyVoice 本地部署）',
     submitLabel: '保存',
+    backdropClose: false,
     fields: [
       { key: 'baseUrl', label: '服务地址', value: s.baseUrl, placeholder: 'http://localhost:50000', hint: 'CosyVoice FastAPI 服务的根地址' },
       { key: 'mode', label: '默认生成模式', type: 'select', value: s.mode, options: ['zero_shot', 'sft', 'instruct'], hint: 'zero_shot=音色克隆（用角色音色文件）；sft=预置说话人；instruct=指令控制' },

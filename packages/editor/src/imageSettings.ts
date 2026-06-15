@@ -35,7 +35,9 @@ const KEY = 'vn-image-settings'
 export const IMAGE_DEFAULTS: ImageSettings = {
   provider: 'codex',
   genCommand: 'codex exec --sandbox workspace-write --skip-git-repo-check -C {cwd} {prompt}',
-  genCommandRef: 'codex exec --sandbox workspace-write --skip-git-repo-check -C {cwd} --image {ref} {prompt}',
+  // --image 是可变长参数（FILE...），会把后面的 {prompt} 也当成图片吞掉，导致 codex
+  // 报 "No prompt provided via stdin"。用 -- 结束选项解析，{prompt} 才会被当作位置参数。
+  genCommandRef: 'codex exec --sandbox workspace-write --skip-git-repo-check -C {cwd} --image {ref} -- {prompt}',
   promptTemplate:
     '生成视觉小说素材：{desc}。目标尺寸约 {size}。请把生成的 PNG 图片保存到绝对路径 {out}（目录不存在则创建），完成后只输出一行 JSON：{path, prompt, notes}。',
   rembgCommand: 'rembg i {in} {out}',
@@ -49,10 +51,18 @@ export const IMAGE_DEFAULTS: ImageSettings = {
   },
 }
 
+/** 旧版默认的带参考图命令（--image 会吞掉 prompt）；自动迁移到含 -- 的新默认 */
+const BROKEN_REF_CMD = 'codex exec --sandbox workspace-write --skip-git-repo-check -C {cwd} --image {ref} {prompt}'
+
 export function loadImageSettings(): ImageSettings {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<ImageSettings>
-    return { ...IMAGE_DEFAULTS, ...saved, presets: { ...IMAGE_DEFAULTS.presets, ...(saved.presets ?? {}) } }
+    const merged = { ...IMAGE_DEFAULTS, ...saved, presets: { ...IMAGE_DEFAULTS.presets, ...(saved.presets ?? {}) } }
+    // 迁移：已保存旧默认（--image 紧跟 {prompt}，无 --）→ 升级为新默认
+    if (merged.genCommandRef.trim() === BROKEN_REF_CMD || (merged.genCommandRef.includes('--image {ref} {prompt}') && !merged.genCommandRef.includes(' -- '))) {
+      merged.genCommandRef = IMAGE_DEFAULTS.genCommandRef
+    }
+    return merged
   } catch {
     return { ...IMAGE_DEFAULTS }
   }
@@ -68,9 +78,10 @@ export async function openImageSettings(): Promise<boolean> {
   const result = await showModal({
     title: '生图接入设置（codex exec 工作流 + rembg）',
     submitLabel: '保存',
+    backdropClose: false,
     fields: [
       { key: 'genCommand', label: '生图命令（无参考图）', value: s.genCommand, hint: '占位符：{cwd} 项目根、{prompt} 完整工作流提示词（单参数不拆）；codex exec 是 agent 工作流' },
-      { key: 'genCommandRef', label: '生图命令（带参考图）', value: s.genCommandRef, hint: '额外占位符 {ref}（参考图绝对路径）；留空则忽略参考图' },
+      { key: 'genCommandRef', label: '生图命令（带参考图）', value: s.genCommandRef, hint: '额外占位符 {ref}（参考图绝对路径）；--image 是可变长参数，{prompt} 前需用 -- 分隔，否则会被当成图片吞掉' },
       { key: 'promptTemplate', label: '工作流提示词模板（$imagegen）', type: 'textarea', value: s.promptTemplate, hint: '占位符：{desc} 用户描述、{out} 绝对输出路径、{size}、{ref}；必须含 {out} 让 agent 知道存哪' },
       { key: 'rembgCommand', label: '抠图命令（rembg）', value: s.rembgCommand, hint: '占位符：{in} 输入、{out} 输出透明 PNG' },
       { key: 'size', label: '默认出图尺寸', value: s.size, placeholder: '1024x1536' },
