@@ -7,6 +7,7 @@ import { AssetPanel, DRAG_MIME } from './assetPanel.js'
 import { CursorPreview } from './cursorPreview.js'
 import { pickPath } from './fsBrowser.js'
 import { openTtsSettings } from './ttsSettings.js'
+import { openImageSettings } from './imageSettings.js'
 
 interface Diag {
   severity: 'error' | 'warning' | 'info'
@@ -31,6 +32,7 @@ app.innerHTML = `
       <button id="btn-restart">重启预览</button>
       <button id="btn-view">流程图</button>
       <button id="btn-tts">TTS 设置</button>
+      <button id="btn-img">图片设置</button>
       <span class="status" id="status">就绪</span>
     </div>
     <aside id="sidebar">
@@ -360,6 +362,7 @@ document.getElementById('btn-project')!.addEventListener('click', () => void ope
 document.getElementById('btn-save')!.addEventListener('click', () => void saveDirty())
 document.getElementById('btn-restart')!.addEventListener('click', () => restartPreview())
 document.getElementById('btn-tts')!.addEventListener('click', () => void openTtsSettings())
+document.getElementById('btn-img')!.addEventListener('click', () => void openImageSettings())
 viewBtn.addEventListener('click', () => {
   const toGraph = !sideEl.classList.contains('graph-mode')
   sideEl.classList.toggle('graph-mode', toGraph)

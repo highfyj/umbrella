@@ -132,6 +132,85 @@ const TTS_DEFAULT_PATHS: Record<string, string> = {
   instruct: '/inference_instruct2',
 }
 
+// ---------- 生图 / 抠图：本地 CLI 工具（codex image2、rembg）通过 dev server 代理 ----------
+
+/**
+ * 命令模板 → 参数数组：以空格切分模板，整词占位符（{prompt} 等）替换为单个参数
+ * （含空格/中文的提示词不会被拆开）；嵌入式占位符（--out={out}）就地替换。
+ * 值为空的整词占位符（如可选的 {ref}）被丢弃。
+ */
+function buildArgs(template: string, vars: Record<string, string>): string[] {
+  const out: string[] = []
+  for (const tok of template.trim().split(/\s+/).filter(Boolean)) {
+    const whole = /^\{(\w+)\}$/.exec(tok)
+    if (whole) {
+      const v = vars[whole[1]]
+      if (v) out.push(v)
+      continue
+    }
+    out.push(tok.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? ''))
+  }
+  return out
+}
+
+function quoteArg(a: string): string {
+  return process.platform === 'win32' ? `"${a.replace(/"/g, '""')}"` : `'${a.replace(/'/g, `'\\''`)}'`
+}
+
+interface ToolResult {
+  ok: boolean
+  status: number | null
+  output: string
+  notFound: boolean
+}
+
+/** 运行本地 CLI：先直接 spawn；ENOENT（多为 Windows 的 .cmd/.bat）回退 shell 模式 */
+function runTool(cmd: string, args: string[], cwd: string, timeout: number): ToolResult {
+  const opts = { cwd, timeout, encoding: 'utf8' as const, maxBuffer: 64 * 1024 * 1024 }
+  let r = spawnSync(cmd, args, opts)
+  if (r.error && (r.error as NodeJS.ErrnoException).code === 'ENOENT') {
+    const line = [cmd, ...args].map(quoteArg).join(' ')
+    r = spawnSync(line, { ...opts, shell: true })
+  }
+  const notFound = !!r.error && (r.error as NodeJS.ErrnoException).code === 'ENOENT'
+  const output = `${r.stdout ?? ''}${r.stderr ?? ''}${r.error ? String(r.error) : ''}`.trim().slice(-2000)
+  return { ok: !r.error && r.status === 0, status: r.status ?? null, output, notFound }
+}
+
+/**
+ * 探活：用 where/which 按退出码判定（与语言环境无关，能识别 Windows 的 .cmd/.bat）。
+ * shell 回退执行 + 解析输出不可靠：中文 Windows 的"不是内部或外部命令"是 GBK，按 UTF-8 解码会乱码。
+ */
+function probeTool(command: string, _cwd: string): { ok: boolean; detail: string } {
+  const cmd = command.trim().split(/\s+/)[0] ?? ''
+  if (!cmd) return { ok: false, detail: '未配置命令' }
+  // 配置成绝对路径/带目录分隔符时直接查存在性
+  if (isAbsolute(cmd) || cmd.includes('/') || cmd.includes('\\')) {
+    return existsSync(cmd) ? { ok: true, detail: cmd } : { ok: false, detail: `找不到可执行文件：${cmd}` }
+  }
+  const finder = process.platform === 'win32' ? 'where' : 'which'
+  const r = spawnSync(finder, [cmd], { encoding: 'utf8', timeout: 8000 })
+  const path = (r.stdout ?? '').split(/\r?\n/)[0]?.trim()
+  if (!r.error && r.status === 0 && path) return { ok: true, detail: path }
+  return { ok: false, detail: `找不到可执行文件：${cmd}` }
+}
+
+export interface ImgGenerateRequest {
+  flow: 'sprite' | 'bg' | 'base'
+  prompt: string
+  /** 参考图：项目内相对路径（可选） */
+  ref?: string
+  count: number
+  size: string
+  genCommand: string
+  genCommandRef: string
+  rembgCommand: string
+  /** 是否抠图（立绘默认开） */
+  matte: boolean
+  /** 预览文件基名 */
+  name: string
+}
+
 interface DiskFiles {
   read(p: string): string | null
   list(d: string): string[]
@@ -156,7 +235,9 @@ export interface VnPluginOptions {
  * - POST /api/asset/import?to=...  浏览器上传素材写入项目（拖入文件；重名自动加后缀）
  * - POST /api/asset/import-local   {src,to} 本机文件拷入项目（浏览选中）
  * - POST /api/asset/delete         {path} 删除项目内素材文件（voice/ 下会同步清 voice.lock）
- * - /sprite|bg|bgm|se|voice/**     从项目根伺服资产
+ * - POST /api/tts/{probe,generate,commit}   CosyVoice 代理：探活 / 生成试听 / 落盘+voice.lock
+ * - POST /api/img/{probe,generate,matte,commit}  生图/抠图代理：codex image2 探活 / 抽卡候选 / rembg 抠图 / 落盘
+ * - /sprite|bg|bgm|se|voice/**     从项目根伺服资产；/tts-preview/** /img-preview/** 试听试看
  */
 export function vnPlugin(opts: VnPluginOptions): Plugin {
   return {
@@ -506,6 +587,147 @@ export function vnPlugin(opts: VnPluginOptions): Plugin {
           if (existsSync(file) && statSync(file).isFile()) {
             res.setHeader('Content-Type', MIME[extname(file).toLowerCase()] ?? 'application/octet-stream')
             res.setHeader('Cache-Control', 'no-store') // 同名覆盖生成，禁止缓存
+            createReadStream(file).pipe(res)
+          } else {
+            res.statusCode = 404
+            res.end('not found')
+          }
+          return
+        }
+
+        // ---------- 生图 / 抠图：探活 / 生成候选 / 抠图 / 落盘 ----------
+
+        if (url === '/api/img/probe' && req.method === 'POST') {
+          void readBody(req)
+            .then((body) => {
+              const { genCommand, rembgCommand } = JSON.parse(body) as { genCommand: string; rembgCommand: string }
+              json(res, 200, {
+                codex: probeTool(genCommand, projectRoot),
+                rembg: probeTool(rembgCommand, projectRoot),
+              })
+            })
+            .catch((err: unknown) => json(res, 500, { error: String(err) }))
+          return
+        }
+
+        if (url === '/api/img/generate' && req.method === 'POST') {
+          void readBody(req)
+            .then((body) => {
+              const o = JSON.parse(body) as ImgGenerateRequest
+              const previewDir = join(projectRoot, 'build/img-preview')
+              mkdirSync(previewDir, { recursive: true })
+              let absRef = ''
+              if (o.ref) {
+                absRef = join(projectRoot, o.ref)
+                if (!existsSync(absRef)) {
+                  json(res, 200, { ok: false, error: `参考图不存在：${o.ref}` })
+                  return
+                }
+              }
+              const safeName = (o.name || 'gen').replace(/[^\w-]/g, '_')
+              const count = Math.max(1, Math.min(8, o.count || 1))
+              const template = absRef && o.genCommandRef.trim() ? o.genCommandRef : o.genCommand
+              const candidates: Array<{ preview?: string; error?: string }> = []
+              for (let i = 0; i < count; i++) {
+                const stem = `${safeName}_${i}`
+                const outAbs = join(previewDir, `${stem}.png`)
+                if (existsSync(outAbs)) unlinkSync(outAbs)
+                const args = buildArgs(template, { prompt: o.prompt, out: outAbs, ref: absRef, size: o.size, n: '1' })
+                if (!args.length) {
+                  candidates.push({ error: '生图命令为空' })
+                  continue
+                }
+                const r = runTool(args[0], args.slice(1), projectRoot, 300000)
+                if (r.notFound) {
+                  candidates.push({ error: `找不到生图命令：${args[0]}` })
+                  continue
+                }
+                if (!existsSync(outAbs)) {
+                  candidates.push({ error: `命令未在预期路径生成图片（退出码 ${r.status}）：${r.output.split('\n').slice(-1)[0] ?? ''}` })
+                  continue
+                }
+                let preview = `img-preview/${stem}.png`
+                if (o.matte) {
+                  const matteAbs = join(previewDir, `${stem}_cut.png`)
+                  if (existsSync(matteAbs)) unlinkSync(matteAbs)
+                  const ra = buildArgs(o.rembgCommand, { in: outAbs, out: matteAbs })
+                  const mr = runTool(ra[0], ra.slice(1), projectRoot, 120000)
+                  if (existsSync(matteAbs)) preview = `img-preview/${stem}_cut.png`
+                  else candidates.push({ preview, error: `抠图失败（保留原图）：${mr.notFound ? '找不到 rembg' : mr.output.split('\n').slice(-1)[0] ?? ''}` })
+                }
+                if (!candidates[i]) candidates.push({ preview })
+              }
+              json(res, 200, { ok: candidates.some((c) => c.preview), candidates })
+            })
+            .catch((err: unknown) => json(res, 500, { error: String(err) }))
+          return
+        }
+
+        if (url === '/api/img/matte' && req.method === 'POST') {
+          void readBody(req)
+            .then((body) => {
+              const { src, rembgCommand, name } = JSON.parse(body) as { src: string; rembgCommand: string; name: string }
+              if (!safeAssetPath(src) && !/^(sprite|bg|production)\//.test(src)) {
+                json(res, 400, { error: `无效源路径：${src}` })
+                return
+              }
+              const srcAbs = join(projectRoot, src)
+              if (!existsSync(srcAbs)) {
+                json(res, 200, { ok: false, error: `源文件不存在：${src}` })
+                return
+              }
+              const previewDir = join(projectRoot, 'build/img-preview')
+              mkdirSync(previewDir, { recursive: true })
+              const stem = `${(name || 'matte').replace(/[^\w-]/g, '_')}_cut`
+              const outAbs = join(previewDir, `${stem}.png`)
+              if (existsSync(outAbs)) unlinkSync(outAbs)
+              const ra = buildArgs(rembgCommand, { in: srcAbs, out: outAbs })
+              const r = runTool(ra[0], ra.slice(1), projectRoot, 120000)
+              if (r.notFound) {
+                json(res, 200, { ok: false, error: `找不到 rembg：${ra[0]}` })
+                return
+              }
+              if (!existsSync(outAbs)) {
+                json(res, 200, { ok: false, error: `抠图未产出（退出码 ${r.status}）：${r.output.split('\n').slice(-1)[0] ?? ''}` })
+                return
+              }
+              json(res, 200, { ok: true, preview: `img-preview/${stem}.png` })
+            })
+            .catch((err: unknown) => json(res, 500, { error: String(err) }))
+          return
+        }
+
+        if (url === '/api/img/commit' && req.method === 'POST') {
+          void readBody(req)
+            .then((body) => {
+              const { preview, to } = JSON.parse(body) as { preview: string; to: string }
+              if (!/^img-preview\/[\w-]+\.png$/.test(preview)) {
+                json(res, 400, { error: `无效预览路径：${preview}` })
+                return
+              }
+              if (!safeAssetPath(to)) {
+                json(res, 400, { error: `无效目标路径：${to}` })
+                return
+              }
+              const src = join(projectRoot, 'build', preview)
+              if (!existsSync(src)) {
+                json(res, 400, { error: `预览文件不存在：${preview}` })
+                return
+              }
+              const abs = dedupePath(join(projectRoot, to))
+              mkdirSync(dirname(abs), { recursive: true })
+              copyFileSync(src, abs)
+              json(res, 200, { ok: true, path: abs.slice(projectRoot.length).replace(/^[/\\]/, '').replaceAll('\\', '/') })
+            })
+            .catch((err: unknown) => json(res, 500, { error: String(err) }))
+          return
+        }
+
+        if (url.startsWith('/img-preview/')) {
+          const file = join(projectRoot, 'build', decodeURIComponent(url.slice(1)))
+          if (existsSync(file) && statSync(file).isFile()) {
+            res.setHeader('Content-Type', MIME[extname(file).toLowerCase()] ?? 'application/octet-stream')
+            res.setHeader('Cache-Control', 'no-store')
             createReadStream(file).pipe(res)
           } else {
             res.statusCode = 404

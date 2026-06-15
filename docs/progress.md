@@ -20,6 +20,8 @@
 | 编辑器 | Monaco + Schema 补全、未保存缓冲区实时语义诊断、内嵌预览、流程图 | cf0382b |
 | 资产管理 | 分层面板、注册写回 YAML、拖拽/插入、光标停留预览、production 编辑素材模型 | 36180c7 |
 | TTS 集成 | CosyVoice 接入（设置 UI/探活/右键生成/试听/落盘+voice.lock）、资产新增 UI | 324144b |
+| 资产管理强化 | 项目切换、本机导入（预览）、移除（确认）、BGM 补播与静音 | 073d203 |
+| 生图集成 | codex image2 生图 + rembg 抠图（设置/探活/抽卡候选/落盘）、立绘/背景/基准图三流程、AI 生成入口 | （本次） |
 
 测试：45/45 通过（`npm test`）；类型检查零错误（`npm run typecheck`）。
 
@@ -71,6 +73,7 @@ packages/
 5. **确定性随机**：PRNG 状态进 VM/存档；`random` 加权分支（权重是表达式）、`rand()/randint()`；回滚不重掷。
 6. **production 编辑素材**：挂 characters.yaml 角色节点（refs 出图参考 / tts 音色配置），编译器只做存在性 info 提示，**不进 IR 不发布**。
 7. **TTS 走 dev server 代理**（浏览器 CORS）：generate 裸 PCM→WAV→可选 ogg；commit 落盘 + 写 voice.lock（text_hash 复用编译器 textHash，且**用脚本原文**而非微调读法文本）。
+9. **生图也走 dev server 代理**（调本地 CLI）：命令为可配置模板（占位符 {prompt}/{out}/{ref}/{size}），含空格/中文的提示词作为单个参数不被拆开；ENOENT 回退 shell 模式跑 .cmd/.bat；探活用 `where`/`which` 按退出码判定（不解析 locale 相关输出）。抽卡生成 N 候选到 build/img-preview，选一张再 commit 落盘；立绘流程串 rembg 抠图。三流程目标不同：立绘→sprite/+注册变体、背景→bg/+注册、基准图→production/refs/+关联 ref。
 8. **编辑器注册类操作 = yaml Document 结构化编辑写回 Monaco model**：保留注释、走撤销栈、保存才落盘；叠加编译（未保存缓冲区覆盖磁盘）让语义诊断在打字时就生效。
 
 ## 6. 已知事项 / 注意点
@@ -79,6 +82,11 @@ packages/
   `tts_text/prompt_text/prompt_wav` 字段、裸 PCM 流）。若实际部署（CosyVoice3）接口不同：
   端点路径可在设置 UI 直接改；字段名不同则需在 `packages/devtools/vnVitePlugin.ts` 的
   `/api/tts/generate` 处加适配。
+- **codex image2 / rembg 命令形态未实测**：默认模板
+  `codex image2 --size {size} --output {out} --prompt {prompt}` 与 `rembg i {in} {out}` 为合理猜测，
+  在编辑器"图片设置"里可改并"测试可达性"。约定：命令必须把图片**写到 {out} 指定路径**（生成后按该路径存在性判定成功）。
+  若 codex 实际把图写到别处或走 stdout，需调整模板或在 `/api/img/generate` 处加适配。
+  生图/抠图均在本机同步执行（spawn），抽卡 N 次是串行循环，较慢。
 - TTS 设置存浏览器 localStorage（机器本地，换机器要重配）。
 - 浏览器自动播放策略：无用户手势时 BGM 起播会被拦，播放器会在下一次点击/按键时自动补播（编辑器保存后重启预览同理，继续打字或点预览即可听到）。
 - 角色立绘变体的 `state` 当前在 IR comboKey 中以排序后 `+` 连接（`校服|淋湿|微笑`）。

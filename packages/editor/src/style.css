@@ -480,3 +480,57 @@ audio.imp-preview { width: 100%; height: 34px; }
   font-style: normal;
 }
 .asset-head .a-add:hover { background: #2d3650; color: #fff; }
+
+/* ---------- AI 生图：抽卡候选画廊 ---------- */
+.ig-hint { font-size: 12px; color: #9aa3c0; margin-bottom: 6px; }
+.ig-running { color: #ffc878; }
+.ig-errs { margin-top: 6px; font-size: 12px; color: #ff8585; }
+.ig-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.ig-cell {
+  border: 2px solid transparent;
+  border-radius: 8px;
+  padding: 4px;
+  cursor: pointer;
+  background: #161925;
+  text-align: center;
+}
+.ig-cell:hover { background: #1f2434; }
+.ig-cell.sel { border-color: #3e6cb0; background: #243150; }
+.ig-cell img {
+  width: 100%;
+  height: 140px;
+  object-fit: contain;
+  border-radius: 4px;
+  /* 棋盘格底，便于看透明区域 */
+  background-image:
+    linear-gradient(45deg, #2a2f42 25%, transparent 25%),
+    linear-gradient(-45deg, #2a2f42 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #2a2f42 75%),
+    linear-gradient(-45deg, transparent 75%, #2a2f42 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+.ig-cell .ig-cap { font-size: 11px; color: #9aa3c0; margin-top: 3px; }
+.ig-cell.ig-fail {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 160px;
+  color: #ff8585;
+  font-size: 12px;
+}
+.ig-checker {
+  background-image:
+    linear-gradient(45deg, #444 25%, transparent 25%),
+    linear-gradient(-45deg, #444 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #444 75%),
+    linear-gradient(-45deg, transparent 75%, #444 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}

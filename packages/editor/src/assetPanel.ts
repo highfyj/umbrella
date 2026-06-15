@@ -10,6 +10,7 @@ import { pickPath } from './fsBrowser.js'
 import { importAssetFlow, sanitizeFileName, type ImportSource } from './importAsset.js'
 import { showModal, type ModalAction } from './modal.js'
 import { loadTtsSettings, openTtsSettings, pathForMode } from './ttsSettings.js'
+import { commitImage, generateImageFlow, matteFlow } from './imageGen.js'
 import {
   addCharacter, addRef, clearTtsSample, ensureSpriteDefault, registerAsset, registerVariant,
   removeAsset, removeRef, removeVariant, setTtsSample, type YamlModel,
@@ -93,7 +94,7 @@ export class AssetPanel {
   private render(): void {
     const idx = this.index!
     const html: string[] = [
-      `<div class="asset-toolbar"><button data-act="refresh">↻ 刷新</button> <button data-act="import">⤓ 导入素材</button></div>`,
+      `<div class="asset-toolbar"><button data-act="refresh">↻ 刷新</button> <button data-act="import">⤓ 导入素材</button> <button data-act="aigen">✨ AI 生成</button></div>`,
       `<div class="asset-drophint">可直接把图片/音频拖进本面板</div>`,
     ]
 
@@ -219,6 +220,7 @@ export class AssetPanel {
   private bind(): void {
     this.container.querySelector('[data-act="refresh"]')?.addEventListener('click', () => void this.refresh())
     this.container.querySelector('[data-act="import"]')?.addEventListener('click', () => void this.importFromDisk())
+    this.container.querySelector('[data-act="aigen"]')?.addEventListener('click', () => void this.aiGenerate())
     for (const head of this.container.querySelectorAll<HTMLElement>('.asset-head')) {
       head.addEventListener('click', (e) => {
         if ((e.target as HTMLElement).dataset.add) {
@@ -254,6 +256,13 @@ export class AssetPanel {
     if (d.drag) actions.push(['插入到脚本', () => this.host.insertStep(d.drag!)])
     if (kind === 'voice') {
       actions.push([d.missing === 'true' ? 'TTS 生成…' : 'TTS 重新生成/替换…', () => this.ttsFlow(d)])
+    }
+    // AI 生图 / 抠图
+    if (kind === 'bg') actions.push([d.missing === 'true' ? 'AI 生成图片…' : 'AI 重新生成图片…', () => this.genBgInto(d.name!)])
+    if (kind === 'variant') actions.push([d.missing === 'true' ? 'AI 生成立绘…' : 'AI 重新生成立绘…', () => this.genSpriteForCombo(d.who!, d.combo!)])
+    if (kind === 'ref') actions.push(['AI 重新生成基准图…', () => this.genBaseRef(d.who!)])
+    if ((kind === 'variant' || kind === 'loose-sprite' || kind === 'loose-sprite-orphan') && d.missing !== 'true' && d.file) {
+      actions.push(['抠图（去背景）…', () => this.matteInto(d)])
     }
     if (kind === 'loose-bg') actions.push(['注册为背景', () => this.registerLoose('backgrounds', d.file!)])
     if (kind === 'loose-bgm') actions.push(['注册为 BGM', () => this.registerLoose('bgm', d.file!)])
@@ -692,6 +701,160 @@ export class AssetPanel {
     if (!v) return
     setTtsSample(await this.host.ensureModel('story/characters.yaml'), v.who, file)
     this.host.onMutated()
+  }
+
+  // ---------- AI 生图 / 抠图 ----------
+
+  /** 工具栏"✨ AI 生成"：选类型 → 路由到对应流程（含新建目标） */
+  private async aiGenerate(): Promise<void> {
+    const t = await showModal({
+      title: 'AI 生成素材',
+      fields: [{ key: 'type', label: '生成类型', type: 'select', value: '背景', options: ['背景', '立绘', '角色基准图'] }],
+    })
+    if (!t) return
+    if (t.type === '背景') {
+      const v = await showModal({
+        title: 'AI 生成背景',
+        fields: [{ key: 'name', label: '背景注册名（脚本中引用）', placeholder: '如 教室_白天' }],
+        validate: (v) => (v.name ? null : '注册名必填'),
+      })
+      if (v) await this.genBgInto(v.name)
+    } else if (t.type === '角色基准图') {
+      const names = this.index!.characters.map((c) => c.name)
+      if (!names.length) {
+        alert('还没有角色，请先在"立绘"分节用 ＋ 新建角色')
+        return
+      }
+      const v = await showModal({
+        title: 'AI 生成角色基准图',
+        fields: [{ key: 'who', label: '角色', type: 'select', value: names[0], options: names }],
+      })
+      if (v) await this.genBaseRef(v.who)
+    } else {
+      await this.addSpriteViaGen()
+    }
+  }
+
+  private parseCombo(combo: string): { outfit: string; state: string[]; face: string } {
+    const [outfit, stateStr, face] = combo.split('|')
+    return { outfit, state: stateStr ? stateStr.split('+').filter(Boolean) : [], face }
+  }
+
+  private async genBgInto(name: string): Promise<void> {
+    const preview = await generateImageFlow({
+      flow: 'bg', title: `AI 生成背景：${name}`, seed: name, name: `bg_${sanitizeFileName(name)}`, matteDefault: false,
+    })
+    if (!preview) return
+    const path = await commitImage(preview, `bg/${sanitizeFileName(name)}.png`)
+    if (!path) return
+    registerAsset(await this.host.ensureModel('story/assets.yaml'), 'backgrounds', name, path)
+    this.host.onMutated()
+  }
+
+  private async genBaseRef(who: string): Promise<void> {
+    const preview = await generateImageFlow({
+      flow: 'base', title: `AI 生成基准图：${who}`, seed: who, name: `ref_${sanitizeFileName(who)}`, matteDefault: false,
+    })
+    if (!preview) return
+    const dir = sanitizeFileName(who)
+    const path = await commitImage(preview, `production/refs/${dir}/${dir}_ref.png`)
+    if (!path) return
+    addRef(await this.host.ensureModel('story/characters.yaml'), who, path)
+    this.host.onMutated()
+  }
+
+  private async genSpriteForCombo(who: string, combo: string): Promise<void> {
+    const { outfit, state, face } = this.parseCombo(combo)
+    await this.genSpriteVariant({ who, outfit, state, face, oldCombo: combo })
+  }
+
+  /** "✨ AI 生成 → 立绘"：可新建角色 + 维度，然后生成 */
+  private async addSpriteViaGen(): Promise<void> {
+    const NEW = '〈新建角色〉'
+    const names = this.index!.characters.map((c) => c.name)
+    const v = await showModal({
+      title: 'AI 生成立绘（新变体）',
+      fields: [
+        { key: 'who', label: '角色', type: 'select', value: names[0] ?? NEW, options: [...names, NEW] },
+        { key: 'newName', label: '新角色名（选〈新建角色〉时生效）' },
+        { key: 'color', label: '新角色名字颜色', placeholder: '#e8748a' },
+        { key: 'voiced', label: '新角色配音', type: 'checkbox', value: true },
+        { key: 'outfit', label: 'outfit 衣着', placeholder: '如 校服' },
+        { key: 'state', label: 'state 状态（可空，多个用+连接）', placeholder: '如 淋湿' },
+        { key: 'face', label: 'face 表情', placeholder: '如 默认' },
+      ],
+      validate: (v) => {
+        if (v.who === NEW && !v.newName) return '请填写新角色名'
+        if (!v.outfit || !v.face) return 'outfit 与 face 必填'
+        return null
+      },
+    })
+    if (!v) return
+    const who = v.who === NEW ? v.newName : v.who
+    await this.genSpriteVariant({
+      who,
+      outfit: v.outfit,
+      state: v.state ? v.state.split('+').map((s) => s.trim()).filter(Boolean) : [],
+      face: v.face,
+      newChar: v.who === NEW ? { color: v.color || undefined, voiced: v.voiced === 'true' } : undefined,
+    })
+  }
+
+  /** 生成立绘 → 落盘到 sprite/<角色目录> → 注册变体（oldCombo 存在则替换） */
+  private async genSpriteVariant(p: {
+    who: string
+    outfit: string
+    state: string[]
+    face: string
+    oldCombo?: string
+    newChar?: { color?: string; voiced: boolean }
+  }): Promise<void> {
+    const cv = this.index?.characters.find((c) => c.name === p.who)
+    const ref = cv?.refs.find((r) => r.exists)?.path
+    const stateLabel = p.state.join('+') || '无状态'
+    const stem = sanitizeFileName(`${p.who}_${p.outfit}_${p.state.join('-') || 'base'}_${p.face}`)
+    const preview = await generateImageFlow({
+      flow: 'sprite',
+      title: `AI 生成立绘：${p.who}`,
+      seed: `${p.who}，服装「${p.outfit}」，状态「${stateLabel}」，表情「${p.face}」`,
+      ref,
+      name: `sprite_${stem}`,
+      matteDefault: true,
+    })
+    if (!preview) return
+    const dir = cv?.spriteDir ?? sanitizeFileName(p.who)
+    const path = await commitImage(preview, `sprite/${dir}/${stem}.png`)
+    if (!path) return
+    const model = await this.host.ensureModel('story/characters.yaml')
+    if (p.newChar) addCharacter(model, { name: p.who, color: p.newChar.color, voiced: p.newChar.voiced })
+    if (p.oldCombo) removeVariant(model, p.who, p.oldCombo)
+    ensureSpriteDefault(model, p.who, p.outfit, p.face)
+    registerVariant(model, p.who, { outfit: p.outfit, state: p.state, face: p.face, file: path })
+    this.host.onMutated()
+  }
+
+  /** 抠图：对已有图片去背景；变体图就地替换，散图另存为透明 PNG（保持未注册） */
+  private async matteInto(d: DOMStringMap): Promise<void> {
+    const file = d.file!
+    const base = sanitizeFileName(file.split('/').pop()!.replace(/\.[^.]+$/, ''))
+    const preview = await matteFlow(file, base)
+    if (!preview) return
+    if (d.kind === 'variant') {
+      const cv = this.index?.characters.find((c) => c.name === d.who)
+      const dir = cv?.spriteDir ?? sanitizeFileName(d.who!)
+      const path = await commitImage(preview, `sprite/${dir}/${base}_cut.png`)
+      if (!path) return
+      const model = await this.host.ensureModel('story/characters.yaml')
+      const { outfit, state, face } = this.parseCombo(d.combo!)
+      removeVariant(model, d.who!, d.combo!)
+      ensureSpriteDefault(model, d.who!, outfit, face)
+      registerVariant(model, d.who!, { outfit, state, face, file: path })
+      this.host.onMutated()
+    } else {
+      const dirPrefix = file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : 'sprite'
+      const path = await commitImage(preview, `${dirPrefix}/${base}_cut.png`)
+      if (path) this.host.onMutated()
+    }
   }
 }
 
