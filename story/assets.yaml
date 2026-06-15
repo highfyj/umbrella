@@ -4,6 +4,8 @@ backgrounds:
   home_morning: bg/home_morning.jpg
   classroom_evening: bg/classroom_evening.jpg
   street_rain: bg/street_rain.jpg
+  教室_雨天: bg/教室_雨天.png
+  在家_早晨: bg/在家_早晨.png
 
 bgm:
   Afternoon_relax: bgm/Ver_o_no_Cais.mp3

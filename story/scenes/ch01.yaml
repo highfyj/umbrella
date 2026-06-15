@@ -3,7 +3,7 @@ title: 放学后
 
 steps:
   # ── 清晨：一个影响后续分支的小选择 ──
-  - bg: home_morning
+  - bg: 在家_早晨
   - set: { luck: "randint(1, 3)" }   # 开局掷一次"今日运势"，PRNG 状态随存档保存
   - "出门前，天色阴沉得像一块浸了水的抹布。"
   - choice:
@@ -13,7 +13,7 @@ steps:
   # 两个选项都没有 goto，选完继续往下执行
 
   # ── 傍晚：教室 ──
-  - bg: { name: classroom_evening, transition: fade, duration: 800 }
+  - bg: { name: 教室_雨天, transition: fade, duration: 800 }
   - bgm: Afternoon_relax
   - "果然还是下了。雨从第五节课开始，一直没有停。"
   - "教室里只剩下我们两个人。"
