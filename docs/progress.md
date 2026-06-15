@@ -8,7 +8,7 @@
 全屏 Web 视觉小说（VN）引擎 + 配套脚本编辑系统，全程语音，资产由 AI 生成驱动。
 核心理念：**剧情脚本 DSL 是产品核心**——YAML 源码 → 编译器（结构校验 + 语义 linter）→ JSON IR → 确定性 VM。
 
-仓库：`ssh://git@git.imakeall.com:2022/game/webnovel.git`（main 分支）
+仓库：`https://github.com/highfyj/umbrella.git`（main 分支）
 
 ## 2. 当前进度（全部已完成并验证）
 
@@ -28,8 +28,8 @@
 ## 3. 快速上手（新机器）
 
 ```bash
-git clone ssh://git@git.imakeall.com:2022/game/webnovel.git
-cd webnovel
+git clone https://github.com/highfyj/umbrella.git
+cd umbrella
 npm install            # Node >= 20（开发时用的 24），npm workspaces
 npm test               # 应 45/45 通过
 npm run editor         # 编辑器 http://localhost:5174（主要工作入口）
