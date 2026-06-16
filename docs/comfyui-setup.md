@@ -52,8 +52,12 @@ del ComfyUI_windows_portable.7z
 | 背景（写实） | `Juggernaut-XL_v9_RunDiffusionPhoto_v2.safetensors` | `models/checkpoints/` | 7,105,348,188 | RunDiffusion/Juggernaut-XL-v9 |
 | 立绘（二次元） | `animagine-xl-3.1.safetensors` | `models/checkpoints/` | 6,938,325,776 | cagliostrolab/animagine-xl-3.1 |
 | 立绘（通用底模，可选） | `v1-5-pruned-emaonly.safetensors` | `models/checkpoints/` | 4,265,146,304 | stable-diffusion-v1-5/stable-diffusion-v1-5 |
-| IP-Adapter 权重 | `ip-adapter_sdxl.safetensors` | `models/ipadapter/` | 702,585,376 | h94/IP-Adapter（sdxl_models/） |
-| CLIP 视觉编码器 | `model.safetensors` | `models/clip_vision/` | 2,528,373,448 | h94/IP-Adapter（models/image_encoder/） |
+| IP-Adapter 权重 | `ip-adapter-plus_sdxl_vit-h.safetensors` | `models/ipadapter/` | 847,517,512 | h94/IP-Adapter（sdxl_models/，**必须用 PLUS ViT-H 版**） |
+| CLIP 视觉编码器 | `CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors` | `models/clip_vision/` | 2,528,373,448 | h94/IP-Adapter（models/image_encoder/model.safetensors，**下载后改名**） |
+
+> ⚠️ **IP-Adapter 文件名不可随意**：cubiq 的 ComfyUI_IPAdapter_plus 插件按文件名正则匹配模型类型。
+> - CLIP 编码器在镜像上叫 `model.safetensors`，但插件要求文件名含 `ViT-H-14...s32B-b79K`，下载后必须改名成 `CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors`。
+> - IP-Adapter **不要用** `ip-adapter_sdxl.safetensors`（标准版）：它与当前插件版本的 `ImageProjModel` 维度推断不兼容（报 `[8192,1280] vs [8192,1024]` shape mismatch）。用 **PLUS ViT-H 版**（`ip-adapter-plus_sdxl_vit-h.safetensors`），质量更高且插件走 PLUS 分支正确处理维度。
 
 > **体积以字节为准**，下载后务必核对字节数是否与上表一致（见第 6 节校验方法）。文件名不可改。
 
@@ -67,10 +71,10 @@ curl -L -o checkpoints\Juggernaut-XL_v9_RunDiffusionPhoto_v2.safetensors "https:
 curl -L -o checkpoints\animagine-xl-3.1.safetensors "https://hf-mirror.com/cagliostrolab/animagine-xl-3.1/resolve/main/animagine-xl-3.1.safetensors"
 curl -L -o checkpoints\v1-5-pruned-emaonly.safetensors "https://hf-mirror.com/stable-diffusion-v1-5/stable-diffusion-v1-5/resolve/main/v1-5-pruned-emaonly.safetensors"
 
-:: IP-Adapter 依赖（先建目录）
+:: IP-Adapter 依赖（先建目录；CLIP 编码器下载后必须改名成插件要求的文件名）
 mkdir ipadapter clip_vision
-curl -L -o ipadapter\ip-adapter_sdxl.safetensors "https://hf-mirror.com/h94/IP-Adapter/resolve/main/sdxl_models/ip-adapter_sdxl.safetensors"
-curl -L -o clip_vision\model.safetensors "https://hf-mirror.com/h94/IP-Adapter/resolve/main/models/image_encoder/model.safetensors"
+curl -L -o ipadapter\ip-adapter-plus_sdxl_vit-h.safetensors "https://hf-mirror.com/h94/IP-Adapter/resolve/main/sdxl_models/ip-adapter-plus_sdxl_vit-h.safetensors"
+curl -L -o clip_vision\CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors "https://hf-mirror.com/h94/IP-Adapter/resolve/main/models/image_encoder/model.safetensors"
 ```
 
 ### 3.2 大文件断点续传（推荐）
@@ -167,19 +171,39 @@ masterpiece, best quality, very aesthetic
 
 ### 5.5 IP-Adapter 角色一致性（换表情/换衣不换脸）
 
-节点链：`Load Image → CLIP Vision Encode → Apply IP-Adapter`（同时吃 Checkpoint 的 MODEL），Apply IP-Adapter 的 MODEL 输出接 KSampler。
+> 本节配置已封装成可加载的工作流文件 `comfyui/立绘-IPAdapter.json`（见 5.6 节用法），直接拖进 ComfyUI 即用。以下是节点说明，便于手动调整。
 
-- `Load CLIP Vision` 节点选 `model.safetensors`
-- `Apply IP-Adapter` 的 `ipadapter_file` 选 `ip-adapter_sdxl.safetensors`
-- `weight`：`0.7–0.8`（角色相似度权重，越高越像基础图）
+节点链（**必须用 `IPAdapterUnifiedLoader`，不要手动接 CLIP Vision Load/Encode**）：
+
+```
+Checkpoint ──MODEL──→ IPAdapterUnifiedLoader ──MODEL──→ IPAdapterAdvanced ──MODEL──→ KSampler
+            └──────────IPADAPTER─┘
+Load Image ──IMAGE──→ IPAdapterAdvanced
+```
+
+- `IPAdapterUnifiedLoader` 的 `preset` 选 **`PLUS (high strength)`**（对应 `ip-adapter-plus_sdxl_vit-h.safetensors`）。该加载器会自动按文件名正则找到 CLIP 编码器（`CLIP-ViT-H-14...`）和 IP-Adapter 权重，无需手动接 CLIP Vision 节点。
+- `IPAdapterAdvanced` 的 `weight`：`0.7–0.8`（角色相似度权重，越高越像基础图）
 - 因 IP-Adapter 锁住身份，KSampler 的 `denoise` 可放到 `0.6–0.7` 大胆改
+
+> ⚠️ **不要用 `IPAdapterModelLoader` + `CLIPVisionLoader` + `CLIPVisionEncode` 手动拼接**：标准版 IP-Adapter（`ip-adapter_sdxl.safetensors`）在该插件版本下会报 `shape mismatch [8192,1280] vs [8192,1024]`。UnifiedLoader + PLUS 版是已验证可跑的组合。
+
+### 5.6 工作流文件（开箱即用）
+
+仓库 `comfyui/` 下提供两个已验证可跑的 ComfyUI 工作流，拖进 `http://127.0.0.1:8188` 的画布（或 `Ctrl+O` 加载）即可：
+
+| 文件 | 用途 | 节点数 |
+|---|---|---|
+| `comfyui/立绘-文生图.json` | 纯文生图，生成全新立绘（Animagine XL 3.1，832×1216 竖构图） | 7 |
+| `comfyui/立绘-IPAdapter.json` | 同角色换表情/换衣（IP-Adapter PLUS 锁身份，denoise 0.65） | 10 |
+
+改提示词（正向 CLIP Text Encode 节点）→ 点 Queue Prompt（或 `Ctrl+Enter`）即可生成。换表情只需改正向词里的表情词（`smile`/`angry`/`pouting` 等）+ 改 KSampler 的 seed。
 
 ## 6. 校验
 
 下载完成后核对字节数（与第 3 节表一致即完整）：
 
 ```bash
-powershell -Command "Get-ChildItem -Recurse D:\work\game\ComfyUI_windows_portable\ComfyUI\models\*.safetensors | Select-Object FullName, Length | Format-Table -AutoSize"
+powershell -Command "Get-ChildItem -Recurse ComfyUI_windows_portable\ComfyUI\models\*.safetensors | Select-Object FullName, Length | Format-Table -AutoSize"
 ```
 
 启动并验证：双击 `run_nvidia_gpu.bat`，浏览器打开 `http://127.0.0.1:8188`，在默认工作流的 Load Checkpoint 下拉里应能看到上述三个 checkpoint。
