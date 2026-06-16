@@ -22,6 +22,7 @@
 | TTS 集成 | CosyVoice 接入（设置 UI/探活/右键生成/试听/落盘+voice.lock）、资产新增 UI | 324144b |
 | 资产管理强化 | 项目切换、本机导入（预览）、移除（确认）、BGM 补播与静音 | 073d203 |
 | 生图集成 | codex image2 生图 + rembg 抠图（设置/探活/抽卡候选/落盘）、立绘/背景/基准图三流程、AI 生成入口 | （本次） |
+| ComfyUI 本地生图 | ComfyUI 便携包 + Juggernaut XL/Animagine XL 模型 + IP-Adapter 角色一致性，环境与模型清单见 [comfyui-setup.md](comfyui-setup.md) | （后续） |
 
 测试：45/45 通过（`npm test`）；类型检查零错误（`npm run typecheck`）。
 

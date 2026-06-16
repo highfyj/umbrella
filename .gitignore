@@ -2,3 +2,14 @@ node_modules/
 build/
 dist/
 *.log
+
+# ComfyUI 本地生图环境（便携包 + 模型，体积大，不入库）
+/ComfyUI_windows_portable/
+
+# CosyVoice 本地 TTS 环境（WSL venv + 模型，体积大，不入库）
+# 注意：脚本文件（server.py/start.bat/start.sh 等）需要入库，故精确忽略大文件而非整个目录
+/cosyvoice/pretrained_models/
+/cosyvoice/reference_voices/
+/cosyvoice/output/
+/cosyvoice/logs/
+/cosyvoice/test_clone_output.wav
