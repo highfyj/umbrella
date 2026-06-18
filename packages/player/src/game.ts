@@ -22,11 +22,14 @@ export class Game {
   private busy = false
   private typing: { timer: number; full: string } | null = null
   private inChoice = false
+  private inText = false
   private ended = false
   private disposed = false
+  private shakeTimer = 0
   private placeholders = new Map<string, string>()
   private keyHandler: (e: KeyboardEvent) => void
 
+  private stageEl!: HTMLElement
   private bgEl!: HTMLElement
   private charsEl!: HTMLElement
   private speakerEl!: HTMLElement
@@ -35,6 +38,9 @@ export class Game {
   private choicesEl!: HTMLElement
   private hudEl!: HTMLElement
   private endcardEl!: HTMLElement
+  private textscreenEl!: HTMLElement
+  private moneyEl!: HTMLElement
+  private itemsEl!: HTMLElement
 
   constructor(
     private mount: HTMLElement,
@@ -54,6 +60,7 @@ export class Game {
   }
 
   start(): void {
+    this.renderMoney()
     void this.advance()
   }
 
@@ -68,27 +75,33 @@ export class Game {
   // ---------- DOM ----------
 
   private buildDom(): void {
+    const hasItems = Object.keys(this.ir.items ?? {}).length > 0
     this.mount.innerHTML = `
       <div class="vn-stage">
         <div class="vn-bg"></div>
         <div class="vn-chars"></div>
+        <div class="vn-textscreen"></div>
         <div class="vn-choices"></div>
         <div class="vn-dialogue">
           <div class="vn-speaker"></div>
           <div class="vn-text"></div>
           <div class="vn-adv">▼ 点击继续</div>
         </div>
+        <div class="vn-money"></div>
         <div class="vn-menu">
           <button data-act="save">存档</button>
           <button data-act="load">读档</button>
           <button data-act="restart">重来</button>
+          ${hasItems ? '<button data-act="items">物品</button>' : ''}
           <button data-act="mute"></button>
           <button data-act="hud">HUD</button>
         </div>
         <div class="vn-hud"></div>
+        <div class="vn-items"></div>
         <div class="vn-endcard"></div>
       </div>`
     const q = (sel: string): HTMLElement => this.mount.querySelector(sel)!
+    this.stageEl = q('.vn-stage')
     this.bgEl = q('.vn-bg')
     this.charsEl = q('.vn-chars')
     this.speakerEl = q('.vn-speaker')
@@ -97,15 +110,20 @@ export class Game {
     this.choicesEl = q('.vn-choices')
     this.hudEl = q('.vn-hud')
     this.endcardEl = q('.vn-endcard')
+    this.textscreenEl = q('.vn-textscreen')
+    this.moneyEl = q('.vn-money')
+    this.itemsEl = q('.vn-items')
 
     q('.vn-stage').addEventListener('click', (e) => {
-      if ((e.target as HTMLElement).closest('.vn-menu, .vn-choices, .vn-endcard, .vn-hud')) return
+      if ((e.target as HTMLElement).closest('.vn-menu, .vn-choices, .vn-endcard, .vn-hud, .vn-items')) return
       void this.advance()
     })
     window.addEventListener('keydown', this.keyHandler)
     q('[data-act="save"]').addEventListener('click', () => this.quickSave())
     q('[data-act="load"]').addEventListener('click', () => this.quickLoad())
     q('[data-act="restart"]').addEventListener('click', () => this.restart())
+    this.mount.querySelector('[data-act="items"]')?.addEventListener('click', () => this.toggleItems())
+    this.itemsEl.addEventListener('click', () => this.itemsEl.classList.remove('on'))
     const muteBtn = q('[data-act="mute"]')
     const renderMute = (): void => {
       muteBtn.textContent = this.audio.muted ? '🔇 已静音' : '🔊 声音'
@@ -131,6 +149,11 @@ export class Game {
       this.advEl.classList.add('on')
       return
     }
+    // 全屏文字层：点击先收起，再继续推进到下一事件
+    if (this.inText) {
+      this.inText = false
+      this.textscreenEl.classList.remove('on')
+    }
     this.busy = true
     this.advEl.classList.remove('on')
     this.audio.stopVoice() // 推进打断语音（玩家设置项，v1 固定为打断）
@@ -139,6 +162,7 @@ export class Game {
       await this.applyEffects(event.effects)
       if (this.disposed) return
       if (event.type === 'line') this.showLine(event)
+      else if (event.type === 'text') this.showText(event)
       else if (event.type === 'choice') this.showChoice(event)
       else this.showEnd(event)
     } catch (err) {
@@ -184,9 +208,26 @@ export class Game {
         case 'wait':
           await sleep(f.ms)
           break
+        case 'shake':
+          this.shakeStage(f.intensity, f.ms)
+          break
       }
     }
     this.renderHud()
+    this.renderMoney()
+  }
+
+  private shakeStage(intensity: 'light' | 'medium' | 'heavy', ms: number): void {
+    if (this.shakeTimer) window.clearTimeout(this.shakeTimer)
+    this.stageEl.classList.remove('shake-light', 'shake-medium', 'shake-heavy')
+    // 强制 reflow，确保重复同强度也能重新触发动画
+    void this.stageEl.offsetWidth
+    this.stageEl.style.setProperty('--shake-ms', `${ms}ms`)
+    this.stageEl.classList.add(`shake-${intensity}`)
+    this.shakeTimer = window.setTimeout(() => {
+      this.stageEl.classList.remove(`shake-${intensity}`)
+      this.shakeTimer = 0
+    }, ms)
   }
 
   private charEl(who: string): HTMLElement | null {
@@ -271,6 +312,56 @@ export class Game {
     this.choicesEl.classList.add('on')
   }
 
+  private showText(e: Extract<VMEvent, { type: 'text' }>): void {
+    this.inText = true
+    this.speakerEl.textContent = ''
+    this.textEl.textContent = ''
+    const title = e.title ? `<div class="ts-title">${escapeHtml(e.title)}</div>` : ''
+    this.textscreenEl.className = `vn-textscreen on ts-${e.style}`
+    this.textscreenEl.innerHTML = `
+      <div class="ts-frame">
+        ${title}
+        <div class="ts-body">${escapeHtml(e.content)}</div>
+        <div class="ts-adv">▼ 点击继续</div>
+      </div>`
+  }
+
+  // ---------- 货币 / 物品栏 ----------
+
+  private renderMoney(): void {
+    const cur = this.ir.currency
+    if (!cur) return
+    this.moneyEl.classList.add('on')
+    this.moneyEl.textContent = `${cur.symbol}${this.vm.money}`
+  }
+
+  private toggleItems(): void {
+    if (this.itemsEl.classList.contains('on')) {
+      this.itemsEl.classList.remove('on')
+      return
+    }
+    const inv = this.vm.inventory
+    const held = Object.keys(this.ir.items).filter((id) => (inv[id] ?? 0) > 0)
+    const body = held.length
+      ? held
+          .map((id) => {
+            const def = this.ir.items[id]
+            const img = def.image && !def.image.missing
+              ? `<img src="${encodeURI('/' + def.image.file)}" alt="${escapeHtml(def.name)}">`
+              : `<div class="item-ph">${escapeHtml(def.name)}</div>`
+            const desc = def.desc ? `<div class="item-desc">${escapeHtml(def.desc)}</div>` : ''
+            return `<div class="item-card">
+              <div class="item-img">${img}</div>
+              <div class="item-name">${escapeHtml(def.name)}${inv[id] > 1 ? ` ×${inv[id]}` : ''}</div>
+              ${desc}
+            </div>`
+          })
+          .join('')
+      : '<div class="item-empty">（暂无物品）</div>'
+    this.itemsEl.innerHTML = `<div class="items-title">物品栏</div><div class="items-grid">${body}</div>`
+    this.itemsEl.classList.add('on')
+  }
+
   private showEnd(e: Extract<VMEvent, { type: 'end' }>): void {
     this.ended = true
     this.audio.stopBgm()
@@ -324,13 +415,17 @@ export class Game {
     if (this.typing) clearInterval(this.typing.timer)
     this.typing = null
     this.inChoice = false
+    this.inText = false
     this.ended = false
     this.busy = false
     this.choicesEl.classList.remove('on')
     this.endcardEl.classList.remove('on')
+    this.textscreenEl.classList.remove('on')
+    this.itemsEl.classList.remove('on')
     this.speakerEl.textContent = ''
     this.textEl.textContent = ''
     this.audio.stopVoice()
+    this.renderMoney()
   }
 
   /** 读档后按存档里的舞台状态重建画面 */

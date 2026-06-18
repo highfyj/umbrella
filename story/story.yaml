@@ -9,6 +9,13 @@ vars:
   favor: 0
   luck: 0          # 开局随机决定，演示 randint 与权重公式
 
+# 货币系统（可选）：启用后内置变量 money 可用，玩家界面常驻显示
+currency:
+  enabled: true
+  name: 零钱
+  symbol: ￥
+  initial: 20
+
 endings:
   good_ending:
     title: 雨停之后

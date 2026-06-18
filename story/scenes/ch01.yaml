@@ -2,13 +2,20 @@ scene: ch01
 title: 放学后
 
 steps:
+  # ── 章节简介：全屏文字层（text 指令，与对话框旁白区分开） ──
+  - text:
+      style: intro
+      title: 第一章 · 放学后
+      content: 六月的雨，总是来得猝不及防。
+
   # ── 清晨：一个影响后续分支的小选择 ──
   - bg: 在家_早晨
   - set: { luck: "randint(1, 3)" }   # 开局掷一次"今日运势"，PRNG 状态随存档保存
   - "出门前，天色阴沉得像一块浸了水的抹布。"
   - choice:
       - text: 带上折叠伞
-        set: { has_umbrella: true }
+        # 同时置标志位与发放物品：物品栏里能看到这把伞，item.折叠伞 也可参与分支
+        set: { has_umbrella: true, item.折叠伞: "item.折叠伞 + 1" }
       - text: 应该不会下吧
   # 两个选项都没有 goto，选完继续往下执行
 
@@ -25,6 +32,7 @@ steps:
   - 小满@赌气: "哼，明明是没带伞吧。"
     id: ch01_0020
   - se: thunder
+  - shake: 中          # 雷声伴随一次全屏震动
   - wait: 600
   - 小满@失落: "……其实，我也没带。"
     id: ch01_0030
@@ -51,6 +59,8 @@ steps:
   # ── 场景内 label 分支：多聊一会儿，再走向 normal 线 ──
   - label: sit_a_while
   - "我们就这样有一搭没一搭地聊着，听雨点敲着窗台。"
+  - "我摸出几枚硬币，去走廊尽头的贩卖机买了两罐热可可。"
+  - money: { spend: 5 }   # 花掉一点零钱（界面金额随之减少）
   - 小满@微笑: "其实，下雨天也不坏。"
     id: ch01_0040
   - set: { favor: "favor + 1" }

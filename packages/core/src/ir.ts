@@ -4,6 +4,7 @@ export type ExprAST =
   | ['lit', number | boolean | string]
   | ['var', string]
   | ['global', string]
+  | ['item', string]
   | ['bin', BinOp, ExprAST, ExprAST]
   | ['un', '!' | '-', ExprAST]
   | ['call', 'rand' | 'randint', ExprAST[]]
@@ -33,16 +34,25 @@ export interface Target {
   to: number
 }
 
+/** 全屏文字层风格：信纸 / 读白 / 章节简介 / 纯文本 */
+export type TextStyle = 'letter' | 'monologue' | 'intro' | 'note'
+/** 全屏震动强度 */
+export type ShakeIntensity = 'light' | 'medium' | 'heavy'
+
 export type Op =
   | { op: 'narrate'; text: string; lineId: string }
   | { op: 'say'; who: string; text: string; face: string | null; lineId: string; voice: VoiceRef | null }
+  | { op: 'text'; style: TextStyle; title: string | null; content: string; lineId: string }
   | { op: 'bg'; name: string; transition?: string; duration?: number }
   | { op: 'show'; who: string; patch: StatePatch; transition?: string }
   | { op: 'hide'; who: string; transition?: string }
   | { op: 'bgm'; name: string | null; fade?: number }
   | { op: 'se'; name: string }
   | { op: 'wait'; ms: number }
+  | { op: 'shake'; intensity: ShakeIntensity; ms: number }
   | { op: 'set'; assigns: Assign[] }
+  | { op: 'item'; id: string; delta: number }
+  | { op: 'money'; delta: number }
   | { op: 'goto'; to: number }
   | { op: 'jump'; scene: string; to: number }
   | { op: 'jumpIfNot'; expr: ExprAST; to: number }
@@ -73,6 +83,21 @@ export interface CharacterIR {
   sprite: SpriteIR | null
 }
 
+export interface ItemIR {
+  name: string
+  desc: string | null
+  /** 物品配图（item/ 下）；未注册图为 null，运行时占位 */
+  image: AssetRef | null
+  /** 堆叠上限；null 表示不限 */
+  max: number | null
+}
+
+/** 货币系统配置（启用时非 null）；金额本身作为内置变量 money 存于 vars */
+export interface CurrencyIR {
+  name: string
+  symbol: string
+}
+
 export interface StoryIR {
   version: string
   title: string
@@ -80,6 +105,8 @@ export interface StoryIR {
   vars: Record<string, number | boolean | string>
   endings: Record<string, { title: string }>
   characters: Record<string, CharacterIR>
+  items: Record<string, ItemIR>
+  currency: CurrencyIR | null
   assets: {
     backgrounds: Record<string, AssetRef>
     bgm: Record<string, AssetRef>

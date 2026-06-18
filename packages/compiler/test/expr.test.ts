@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { evalExpr, type EvalEnv } from '@vn/core'
 import { ExprError, parseExpr, parseSetValue } from '@vn/compiler'
 
-const env = (vars: Record<string, number | boolean | string> = {}): EvalEnv => ({
+const env = (vars: Record<string, number | boolean | string> = {}, items: Record<string, number> = {}): EvalEnv => ({
   getVar: (n) => {
     if (vars[n] === undefined) throw new Error(`no var ${n}`)
     return vars[n]
   },
   getGlobal: () => false,
+  getItem: (id) => items[id] ?? 0,
   rand: () => 0.5,
 })
 

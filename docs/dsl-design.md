@@ -83,6 +83,10 @@ steps: [ ... ]
 |---|---|---|
 | `narrate` | 纯字符串 | 旁白，无语音 |
 | `say` | `角色名[@表情]: 文本` | 台词，默认有语音 |
+| `text` | `text: 文本` 或 `text: { style, title, content }` | 全屏文字层（信件/读白/简介），见 14 节 |
+| `shake` | `shake: 弱/中/强` 或 `shake: { intensity, ms }` | 全屏震动演出，见 17 节 |
+| `item` | `item: { get/lose: 物品, n }` | 增减物品，见 15 节 |
+| `money` | `money: { earn/spend: 数额 }` 或 `money: 数额` | 增减货币，见 16 节 |
 | `bg` | `bg: 名称` 或 `bg: { name, transition, duration }` | 切背景 |
 | `show` | `show: 角色名` 或 `show: { who, face, outfit, state, at, transition }` | 角色登场；**已在场则为更新**（只改给出的维度） |
 | `hide` | `hide: 角色名` 或 `hide: { who, transition }` | 角色退场（退场不清空粘性维度） |
@@ -381,3 +385,104 @@ ch01_0010:
 - CG/画廊解锁、TTS 占位语音管线（编辑器预览用）
 - 图形化节点编辑器（先做只读流程图）
 - 自定义立绘寻址维度（v0.1 固定 outfit/state/face 三维）
+
+---
+
+# v0.2 扩充：文本层 / 物品 / 货币 / 震动
+
+> IR `version` 升至 `0.2`。四项均为加法式扩展，旧脚本不受影响。设计基调延续 v0.1：
+> 物品退化为只读数字命名空间 `item.<id>`、货币退化为内置变量 `money`，二者复用既有的
+> 表达式/分支/set/存档机制；`text`/`shake` 是干净的新 op。资产缺失（物品配图）依旧只警告 + 占位。
+
+## 14. 文本呈现 `text`（信件 / 读白 / 章节简介）
+
+与对话框旁白 `narrate` 区分：`text` 是**全屏文字层**，点击/回车继续，默认无语音。
+
+```yaml
+- text: "雨下了一整夜。"                 # 最简形式 → note 风格
+- text:
+    style: letter        # letter 信纸 / monologue 读白 / intro 章节简介 / note 纯文本
+    title: 致小满          # 可选抬头/标题
+    content: |
+      见字如面。
+      等雨停了，我们一起回家。
+```
+
+- 控制流上是线性 op，可达性与立绘数据流不受影响。
+- `style` 非法（不在四值内）报 `bad-instruction`。
+- VM 产出独立的 `text` 事件（`{ style, title, content }`），播放器以 `.vn-textscreen` 覆盖层按风格渲染。
+
+## 15. 物品系统 `item`
+
+注册表 `story/items.yaml`（可缺省；缺省时无物品系统）：
+
+```yaml
+items:
+  折叠伞:
+    name: 折叠伞           # 显示名（缺省用 id）
+    desc: 蓝色折叠伞。      # 物品栏描述
+    image: umbrella.png   # item/umbrella.png，缺失占位渲染
+    max: 1                # 可选堆叠上限
+```
+
+**核心模型**：物品是一个**只读数量命名空间 `item.<id>`**，求值为当前持有数量（默认 0，未注册 id 是编译错误，类型为数字）。增减用糖指令 `item:`，等价于对该命名空间做 `set`：
+
+```yaml
+- item: { get: 折叠伞 }                  # +1
+- item: { get: 硬币, n: 5 }              # +5
+- item: { lose: 硬币, n: 2 }             # -2（下限 0，归零即从库存移除）
+
+- if: "item.折叠伞 >= 1"                  # 持有判断直接进分支
+  then: [ "书包侧袋里，折叠伞还在。" ]
+
+- choice:
+    - text: 花 5 枚硬币买伞
+      if: "item.硬币 >= 5"                # 数量参与选项可见性
+      set: { item.硬币: "item.硬币 - 5", item.折叠伞: "item.折叠伞 + 1" }
+```
+
+- 库存 `Record<string, number>` 进 VM 状态与存档（旧存档缺字段降级为空库存）。
+- 数量在 VM 内 `Math.max(0, floor(v))` 钳制，恒为非负整数。
+- 播放器提供物品栏面板（菜单"物品"按钮），列出持有物的配图（缺失占位）、名称、数量、描述。
+- 编辑器资产面板有"物品"分节：新增/编辑（名称·说明·堆叠上限）、配图（浏览本机拷入 `item/` 或换图）、
+  注册 `item/` 下的散图、移除（可选同时删文件）、拖拽插入 `item: { get: <id> }`；写回 `items.yaml`
+  走结构化编辑（保留注释、走撤销栈、保存才落盘），与背景/立绘注册流程一致。
+
+## 16. 货币系统 `money`（可脚本开关）
+
+`story.yaml` 的 `currency` 块控制开关：
+
+```yaml
+currency:
+  enabled: true     # 缺省视为启用；显式 false 关闭
+  name: 零钱
+  symbol: ￥
+  initial: 20       # 开局初始金额
+```
+
+- 启用时编译器注入**内置数字变量 `money`**（初值 `initial`），于是 `if: "money >= 100"`、
+  `set: { money: "money - 20" }` 直接可用；关闭时引用 `money` 报"未声明"。
+- 启用时若又在 `vars` 里声明 `money` → `money-var-conflict` 错误。
+- 糖指令（金额在 VM 内钳制 ≥0；买不起由写手用 `if: money >= n` 自行守门）：
+
+```yaml
+- money: { earn: 50 }     # 赚钱
+- money: { spend: 20 }    # 花钱
+- money: 50               # 简写：正数 = 赚，负数 = 花
+```
+
+- 未启用 currency 却用 `money` 指令 → `money-disabled` 错误。
+- 播放器在启用时常驻显示 `symbol + 金额`。
+
+## 17. 全屏震动 `shake`
+
+纯演出 Effect，非阻塞（与 `se` 同类），可放在任意位置（含 `bg`/`jump` 之后实现"切场景时震"）。
+
+```yaml
+- shake: 强                              # 弱/中/强（或 light/medium/heavy）
+- shake: { intensity: heavy, ms: 600 }   # 完整形式，ms 缺省按强度取值
+```
+
+- 默认时长：弱 300ms / 中 500ms / 强 700ms。
+- 不消耗 PRNG（确定性不受影响，无头测试照常记录 effect）。
+- 播放器对 `.vn-stage` 套 CSS 抖动动画，强度控幅度；尊重 `prefers-reduced-motion`。

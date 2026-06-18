@@ -23,6 +23,17 @@
         "additionalProperties": false,
         "properties": { "title": { "type": "string" } }
       }
+    },
+    "currency": {
+      "type": "object",
+      "description": "货币系统；启用后内置变量 money 可用，并在玩家界面常驻显示",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "description": "缺省视为启用；显式 false 关闭" },
+        "name": { "type": "string" },
+        "symbol": { "type": "string", "description": "金额前缀符号，如 ¥ / ₲" },
+        "initial": { "type": "number", "description": "开局初始金额" }
+      }
     }
   }
 }

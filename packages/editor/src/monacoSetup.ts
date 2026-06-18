@@ -6,6 +6,7 @@ import storySchema from '../../compiler/schemas/story.schema.json'
 import charactersSchema from '../../compiler/schemas/characters.schema.json'
 import assetsSchema from '../../compiler/schemas/assets.schema.json'
 import sceneSchema from '../../compiler/schemas/scene.schema.json'
+import itemsSchema from '../../compiler/schemas/items.schema.json'
 
 self.MonacoEnvironment = {
   getWorker(_workerId: string, label: string) {
@@ -20,6 +21,7 @@ configureMonacoYaml(monaco, {
     { uri: 'vn://schemas/story', fileMatch: ['**/story/story.yaml'], schema: storySchema },
     { uri: 'vn://schemas/characters', fileMatch: ['**/story/characters.yaml'], schema: charactersSchema },
     { uri: 'vn://schemas/assets', fileMatch: ['**/story/assets.yaml'], schema: assetsSchema },
+    { uri: 'vn://schemas/items', fileMatch: ['**/story/items.yaml'], schema: itemsSchema },
     { uri: 'vn://schemas/scene', fileMatch: ['**/story/scenes/*.yaml', '**/story/scenes/*.yml'], schema: sceneSchema },
   ],
 })

@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "vn://schemas/items",
+  "title": "VN 物品注册表（items.yaml）",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "type": "object",
+      "description": "物品注册表：id -> 定义；脚本中以 item.<id> 读取持有数量",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "description": "显示名（缺省用 id）" },
+          "desc": { "type": "string", "description": "物品描述，物品栏展示" },
+          "image": { "type": "string", "description": "item/ 下的配图文件名；缺失时占位" },
+          "max": { "type": "number", "description": "堆叠上限；缺省不限" }
+        }
+      }
+    }
+  }
+}

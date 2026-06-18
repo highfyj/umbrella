@@ -5,6 +5,7 @@ import {
   suggestName,
   type AssetIndex,
   type CharacterView,
+  type ItemView,
 } from './assetIndex.js'
 import { pickPath } from './fsBrowser.js'
 import { importAssetFlow, sanitizeFileName, type ImportSource } from './importAsset.js'
@@ -13,7 +14,7 @@ import { loadTtsSettings, openTtsSettings, pathForMode } from './ttsSettings.js'
 import { commitImage, generateImageFlow, matteFlow } from './imageGen.js'
 import {
   addCharacter, addRef, clearTtsSample, ensureSpriteDefault, registerAsset, registerVariant,
-  removeAsset, removeRef, removeVariant, setTtsSample, type YamlModel,
+  removeAsset, removeItem, removeRef, removeVariant, setItemField, setTtsSample, upsertItem, type YamlModel,
 } from './yamlEdit.js'
 import type { StoryIR } from '@vn/core'
 
@@ -113,6 +114,13 @@ export class AssetPanel {
     html.push(this.section('立绘', 'sprite', true, idx.characters.filter((c) => c.variants.length || c.unregisteredSprites.length).map((c) => this.charSprites(c)).flat()
       .concat(idx.loose.sprite.map((f) => this.item({ icon: '＋', label: f, sub: '未注册（目录未关联角色）', cls: 'unreg', data: { kind: 'loose-sprite-orphan', file: f } })))))
 
+    html.push(this.section('物品', 'item', true, [
+      ...idx.items.map((it) => this.itemRow(it)),
+      ...idx.loose.item.map((f) =>
+        this.item({ icon: '＋', label: f.replace(/^item\//, ''), sub: '未注册（item/ 下的散图）', cls: 'unreg', data: { kind: 'loose-item', file: f } }),
+      ),
+    ]))
+
     html.push(this.section('BGM', 'bgm', true, [
       ...idx.bgm.map((a) =>
         this.item({ icon: '♫', label: a.name, sub: a.file, badge: a.missing ? '缺文件' : '', drag: `bgm: ${a.name}`, data: { kind: 'bgm', name: a.name, file: a.file, missing: String(a.missing) } }),
@@ -169,6 +177,16 @@ export class AssetPanel {
         this.item({ icon: '＋', label: f.replace(/^sprite\//, ''), sub: '未注册变体', cls: 'unreg', data: { kind: 'loose-sprite', who: c.name, file: f } }),
       ),
     ]
+  }
+
+  private itemRow(it: ItemView): string {
+    const sub = it.desc ? `${it.name} · ${it.desc}` : it.file ? `${it.name} · ${it.file}` : `${it.name} · 未配图`
+    const badge = it.file ? (it.missing ? '缺图' : '') : '无图'
+    return this.item({
+      icon: '🎒', label: it.id, sub, badge,
+      drag: `item: { get: ${it.id} }`,
+      data: { kind: 'item', id: it.id, name: it.name, file: it.missing ? '' : it.file ?? '', missing: String(it.missing || !it.file) },
+    })
   }
 
   private charProduction(c: CharacterView): string[] {
@@ -271,6 +289,12 @@ export class AssetPanel {
     if (kind === 'loose-sprite-orphan') actions.push(['注册为变体…', () => this.registerSpriteFlow(null, d.file!)])
     if (kind === 'loose-ref') actions.push(['关联到角色…', () => this.associateRef(d.file!)])
     if (kind === 'loose-tts') actions.push(['设为角色音色…', () => this.associateTts(d.file!)])
+    if (kind === 'loose-item') actions.push(['注册为物品…', () => this.registerLooseItem(d.file!)])
+    if (kind === 'item') {
+      actions.push(['编辑物品（名称/说明/数量）…', () => this.editItemFlow(d.id!)])
+      actions.push([d.missing === 'true' ? '设置配图…' : '更换配图…', () => this.setItemImageFlow(d.id!)])
+      actions.push(['打开 items.yaml', () => this.host.openFile('story/items.yaml')])
+    }
     if (kind === 'tts' || kind === 'ref') actions.push(['打开 characters.yaml', () => this.host.openFile('story/characters.yaml')])
 
     // 移除/删除（带预览的确认框；破坏性动作放最后）
@@ -284,6 +308,7 @@ export class AssetPanel {
     if (kind === 'voice' && exists) actions.push(['删除录音…', () => this.removeVoiceFlow(d.id!, file, d.who ?? '', d.text ?? '')])
     if (kind === 'ref') actions.push(['移除参考图…', () => this.removeRefFlow(d.who!, file, exists)])
     if (kind === 'tts' && file) actions.push(['移除音色…', () => this.removeTtsFlow(d.who!, file, exists)])
+    if (kind === 'item') actions.push(['移除物品…', () => this.removeItemFlow(d.id!, file, exists)])
     if (kind.startsWith('loose-')) actions.push(['删除文件…', () => this.removeLooseFlow(file)])
     return actions
   }
@@ -596,6 +621,34 @@ export class AssetPanel {
       this.host.onMutated()
       return
     }
+    if (section === 'item') {
+      const pendingSrc = { current: null as string | null }
+      const v = await showModal({
+        title: '新增物品',
+        fields: [
+          { key: 'id', label: '物品 id（脚本中 item.<id> 引用、item 指令的 get/lose）', placeholder: '如 折叠伞' },
+          { key: 'name', label: '显示名', placeholder: '缺省用 id' },
+          { key: 'desc', label: '说明（物品栏展示）', type: 'textarea', placeholder: '如 早上塞进书包的折叠伞。' },
+          { key: 'max', label: '堆叠上限（可空 = 不限）', type: 'number' },
+          { key: 'file', label: '配图（item/ 下）', placeholder: 'item/umbrella.png', hint: '可后补（缺图时物品栏占位），或点下方"浏览本地文件"拷入项目' },
+        ],
+        actions: [this.browseAction(IMG_EXTS, 'item/', pendingSrc)],
+        validate: (v) => (!v.id ? '物品 id 必填' : v.file && !v.file.startsWith('item/') ? '配图路径需以 item/ 开头' : null),
+      })
+      if (!v) return
+      let image = v.file
+      if (pendingSrc.current) {
+        const copied = await this.copyLocalIntoProject(pendingSrc.current, v.file)
+        if (!copied) return
+        image = copied
+      }
+      upsertItem(await this.host.ensureModel('story/items.yaml'), {
+        id: v.id, name: v.name || undefined, desc: v.desc || undefined,
+        image: image || undefined, max: v.max ? Number(v.max) : undefined,
+      })
+      this.host.onMutated()
+      return
+    }
     if (section === 'sprite') {
       const NEW = '〈新建角色〉'
       const names = this.index!.characters.map((c) => c.name)
@@ -701,6 +754,79 @@ export class AssetPanel {
     })
     if (!v) return
     setTtsSample(await this.host.ensureModel('story/characters.yaml'), v.who, file)
+    this.host.onMutated()
+  }
+
+  // ---------- 物品（配图 / 说明 / 数量） ----------
+
+  private async editItemFlow(id: string): Promise<void> {
+    const it = this.index?.items.find((i) => i.id === id)
+    if (!it) return
+    const v = await showModal({
+      title: `编辑物品：${id}`,
+      fields: [
+        { key: 'name', label: '显示名', value: it.name },
+        { key: 'desc', label: '说明', type: 'textarea', value: it.desc ?? '' },
+        { key: 'max', label: '堆叠上限（空 = 不限）', type: 'number', value: it.max != null ? String(it.max) : '' },
+      ],
+    })
+    if (!v) return
+    const model = await this.host.ensureModel('story/items.yaml')
+    setItemField(model, id, 'name', v.name || undefined)
+    setItemField(model, id, 'desc', v.desc || undefined)
+    setItemField(model, id, 'max', v.max ? Number(v.max) : undefined)
+    this.host.onMutated()
+  }
+
+  private async setItemImageFlow(id: string): Promise<void> {
+    const pendingSrc = { current: null as string | null }
+    const cur = this.index?.items.find((i) => i.id === id)
+    const v = await showModal({
+      title: `配图：${id}`,
+      fields: [{ key: 'file', label: '配图路径（item/ 下）', value: cur?.file ?? '', placeholder: 'item/umbrella.png', hint: '点"浏览本地文件"拷入项目，或手填已在 item/ 下的文件' }],
+      actions: [this.browseAction(IMG_EXTS, 'item/', pendingSrc)],
+      validate: (v) => (!v.file ? '请填写或选择配图' : !v.file.startsWith('item/') ? '路径需以 item/ 开头' : null),
+    })
+    if (!v) return
+    let image = v.file
+    if (pendingSrc.current) {
+      const copied = await this.copyLocalIntoProject(pendingSrc.current, v.file)
+      if (!copied) return
+      image = copied
+    }
+    setItemField(await this.host.ensureModel('story/items.yaml'), id, 'image', image)
+    this.host.onMutated()
+  }
+
+  private async registerLooseItem(file: string): Promise<void> {
+    const NEW = '〈新建物品〉'
+    const ids = this.index!.items.map((i) => i.id)
+    const v = await showModal({
+      title: `注册物品图：${file.replace(/^item\//, '')}`,
+      fields: [
+        { key: 'target', label: '用作配图', type: 'select', value: ids[0] ?? NEW, options: [...ids, NEW] },
+        { key: 'newId', label: '新物品 id（选〈新建物品〉时生效）', value: suggestName(file) },
+        { key: 'name', label: '显示名（新建时）' },
+        { key: 'desc', label: '说明（新建时）', type: 'textarea' },
+      ],
+      validate: (v) => (v.target === NEW && !v.newId ? '请填写新物品 id' : null),
+    })
+    if (!v) return
+    const model = await this.host.ensureModel('story/items.yaml')
+    if (v.target === NEW) upsertItem(model, { id: v.newId, name: v.name || undefined, desc: v.desc || undefined, image: file })
+    else setItemField(model, v.target, 'image', file)
+    this.host.onMutated()
+  }
+
+  private async removeItemFlow(id: string, file: string, exists: boolean): Promise<void> {
+    const r = await this.confirmRemove(
+      `移除物品：${id}`, file, exists,
+      `将从 items.yaml 移除该物品；脚本中对 item.${id} 的引用与 item 指令会变成编译错误。`,
+      true,
+    )
+    if (!r) return
+    removeItem(await this.host.ensureModel('story/items.yaml'), id)
+    if (r.deleteFile) await this.deleteFileOnDisk(file)
     this.host.onMutated()
   }
 

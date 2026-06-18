@@ -6,12 +6,14 @@ import { comboKey } from '@vn/core'
 /** 主指令键（与角色名互斥） */
 export const INSTRUCTION_KEYS = new Set([
   'bg', 'show', 'hide', 'bgm', 'se', 'wait', 'set', 'if', 'random', 'choice', 'label', 'jump', 'end',
+  'text', 'shake', 'item', 'money',
 ])
 /** 所有保留键（含辅助键），角色名不得与之重名 */
 export const RESERVED_KEYS = new Set([
   ...INSTRUCTION_KEYS,
   'then', 'else', 'goto', 'weight', 'text', 'id', 'voice', 'face', 'at', 'who',
   'name', 'transition', 'duration', 'fade', 'steps', 'scene', 'title',
+  'style', 'content', 'intensity', 'ms', 'get', 'lose', 'n', 'earn', 'spend',
 ])
 
 export interface SpriteRegistry {
@@ -39,6 +41,20 @@ export interface CharacterDef {
   production: ProductionInfo | null
 }
 
+export interface ItemDef {
+  name: string
+  desc: string | null
+  /** 相对 item/ 的配图文件名；无图为 null（占位渲染） */
+  image: string | null
+  max: number | null
+}
+
+export interface CurrencyDef {
+  name: string
+  symbol: string
+  initial: number
+}
+
 export interface Registry {
   title: string
   version: string
@@ -46,6 +62,8 @@ export interface Registry {
   vars: Record<string, number | boolean | string>
   endings: Record<string, { title: string }>
   characters: Map<string, CharacterDef>
+  items: Map<string, ItemDef>
+  currency: CurrencyDef | null
   backgrounds: Map<string, string>
   bgm: Map<string, string>
   se: Map<string, string>
@@ -57,11 +75,13 @@ export function buildRegistry(
   story: ParsedFile,
   characters: ParsedFile,
   assets: ParsedFile,
+  items: ParsedFile | null,
   diag: Diagnostics,
 ): Registry {
   const storyJs = (story.doc.toJS() ?? {}) as Json
   const charsJs = (characters.doc.toJS() ?? {}) as Json
   const assetsJs = (assets.doc.toJS() ?? {}) as Json
+  const itemsJs = (items?.doc.toJS() ?? {}) as Json
 
   const reg: Registry = {
     title: str(storyJs.title) ?? '未命名',
@@ -70,6 +90,8 @@ export function buildRegistry(
     vars: {},
     endings: {},
     characters: new Map(),
+    items: new Map(),
+    currency: null,
     backgrounds: toStrMap(assetsJs.backgrounds),
     bgm: toStrMap(assetsJs.bgm),
     se: toStrMap(assetsJs.se),
@@ -83,6 +105,29 @@ export function buildRegistry(
       reg.vars[k] = v
     } else {
       diag.error('bad-var-default', `变量 ${k} 的默认值必须是数字/布尔/字符串`, story.path)
+    }
+  }
+
+  // 物品注册表（items.yaml，可缺省）
+  const itemMap = (itemsJs.items ?? {}) as Json
+  for (const [id, def] of Object.entries(itemMap)) {
+    const d = (def ?? {}) as Json
+    if (id.includes('.')) {
+      diag.error('bad-item-id', `物品 id "${id}" 不能包含 "."`, items?.path ?? 'story/items.yaml')
+      continue
+    }
+    const max = typeof d.max === 'number' ? d.max : null
+    reg.items.set(id, { name: str(d.name) ?? id, desc: str(d.desc) ?? null, image: str(d.image) ?? null, max })
+  }
+
+  // 货币系统（story.yaml currency 块；启用时注入内置变量 money）
+  const cur = storyJs.currency as Json | undefined
+  if (cur && cur.enabled !== false) {
+    reg.currency = { name: str(cur.name) ?? '金钱', symbol: str(cur.symbol) ?? '¥', initial: typeof cur.initial === 'number' ? cur.initial : 0 }
+    if (reg.vars.money !== undefined) {
+      diag.error('money-var-conflict', '启用 currency 时不能再声明名为 "money" 的变量（它是内置货币变量）', story.path)
+    } else {
+      reg.vars.money = reg.currency.initial
     }
   }
 

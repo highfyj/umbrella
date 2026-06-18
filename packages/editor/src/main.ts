@@ -110,8 +110,9 @@ function renderFileList(): void {
 async function ensureModel(path: string): Promise<ReturnType<typeof monaco.editor.createModel>> {
   let model = models.get(path)
   if (!model) {
-    const data = (await (await fetch(`/api/file?path=${encodeURIComponent(path)}`)).json()) as { content: string }
-    model = monaco.editor.createModel(data.content, 'yaml', monaco.Uri.parse(`file:///${path}`))
+    const data = (await (await fetch(`/api/file?path=${encodeURIComponent(path)}`)).json()) as { content?: string }
+    // 文件可能尚不存在（如首次添加物品前的 items.yaml）→ 空缓冲，保存时落盘创建
+    model = monaco.editor.createModel(data.content ?? '', 'yaml', monaco.Uri.parse(`file:///${path}`))
     model.onDidChangeContent(() => {
       dirty.add(path)
       renderFileList()

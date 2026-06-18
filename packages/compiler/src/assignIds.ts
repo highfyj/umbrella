@@ -23,11 +23,12 @@ export function assignVoiceIds(files: ProjectFiles): AssignResult {
   const story = parseFile(files, 'story/story.yaml')
   const characters = parseFile(files, 'story/characters.yaml')
   const assets = parseFile(files, 'story/assets.yaml')
+  const items = parseFile(files, 'story/items.yaml')
   if (!story || !characters || !assets) {
     result.errors.push('缺少 story/story.yaml、characters.yaml 或 assets.yaml')
     return result
   }
-  const reg = buildRegistry(story, characters, assets, diag)
+  const reg = buildRegistry(story, characters, assets, items, diag)
 
   for (const f of files.list('story/scenes').filter((n) => n.endsWith('.yaml') || n.endsWith('.yml'))) {
     const path = `story/scenes/${f}`

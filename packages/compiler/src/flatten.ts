@@ -59,6 +59,18 @@ export function flattenScenes(scenes: NormalizedScene[], diag: Diagnostics): Fla
           // voice 解析在 voice.ts 中补全；voiceOff 信息通过 sideTable 传递
           sayMeta.set(ops.length - 1, { voiceOff: s.voiceOff, id: s.id, reuse: s.reuse })
           return
+        case 'text':
+          push({ op: 'text', style: s.style, title: s.title, content: s.content, lineId: '' }, s.pos)
+          return
+        case 'shake':
+          push({ op: 'shake', intensity: s.intensity, ms: s.ms }, s.pos)
+          return
+        case 'item':
+          push({ op: 'item', id: s.id, delta: s.delta }, s.pos)
+          return
+        case 'money':
+          push({ op: 'money', delta: s.delta }, s.pos)
+          return
         case 'bg':
           push({ op: 'bg', name: s.name, transition: s.transition, duration: s.duration }, s.pos)
           return

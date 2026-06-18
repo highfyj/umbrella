@@ -137,6 +137,9 @@ export function parseExpr(src: string): ExprAST {
         if (t.v.startsWith('global.') && !t.v.slice('global.'.length).includes('.')) {
           return ['global', t.v.slice('global.'.length)]
         }
+        if (t.v.startsWith('item.') && !t.v.slice('item.'.length).includes('.')) {
+          return ['item', t.v.slice('item.'.length)]
+        }
         throw new ExprError(`非法的变量名 '${t.v}'`, t.pos)
       }
       return ['var', t.v]
@@ -157,7 +160,11 @@ export function parseSetValue(name: string, raw: unknown): ExprAST {
   if (m) {
     const target = m[1]?.trim() ?? name
     if (target !== name) throw new ExprError(`复合赋值的目标 '${target}' 与变量名 '${name}' 不一致`, 0)
-    const self: ExprAST = name.startsWith('global.') ? ['global', name.slice('global.'.length)] : ['var', name]
+    const self: ExprAST = name.startsWith('global.')
+      ? ['global', name.slice('global.'.length)]
+      : name.startsWith('item.')
+        ? ['item', name.slice('item.'.length)]
+        : ['var', name]
     return ['bin', m[2] as BinOp, self, parseExpr(m[3])]
   }
   return parseExpr(raw)

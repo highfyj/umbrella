@@ -1,4 +1,4 @@
-import type { AssetRef, CharacterIR, StoryIR } from '@vn/core'
+import type { AssetRef, CharacterIR, ItemIR, StoryIR } from '@vn/core'
 import { checkReachability, checkRefs, checkSprites, checkVars, type SpriteFlowResult } from './checks.js'
 import { Diagnostics } from './diagnostics.js'
 import { flattenScenes, linkJumps, toSceneIR } from './flatten.js'
@@ -22,12 +22,13 @@ export function compileProject(files: ProjectFiles): CompileResult {
   const story = parseFile(files, 'story/story.yaml')
   const characters = parseFile(files, 'story/characters.yaml')
   const assets = parseFile(files, 'story/assets.yaml')
+  const items = parseFile(files, 'story/items.yaml') // 可缺省
   if (!story) diag.error('missing-file', '找不到 story/story.yaml', 'story/story.yaml')
   if (!characters) diag.error('missing-file', '找不到 story/characters.yaml', 'story/characters.yaml')
   if (!assets) diag.error('missing-file', '找不到 story/assets.yaml', 'story/assets.yaml')
   if (!story || !characters || !assets) return fail()
 
-  const reg = buildRegistry(story, characters, assets, diag)
+  const reg = buildRegistry(story, characters, assets, items, diag)
 
   const sceneFiles = files.list('story/scenes').filter((f) => f.endsWith('.yaml') || f.endsWith('.yml'))
   if (!sceneFiles.length) {
@@ -103,13 +104,28 @@ export function compileProject(files: ProjectFiles): CompileResult {
     })
   }
 
+  // 物品配图：已注册图但文件缺失 = 警告 + 占位（与背景/立绘对称）
+  const itemsIR: Record<string, ItemIR> = {}
+  for (const [id, def] of reg.items) {
+    let image: AssetRef | null = null
+    if (def.image) {
+      const path = `item/${def.image}`
+      const missing = !files.exists(path)
+      if (missing) diag.warn('asset-missing-file', `物品 "${id}" 的配图不存在（${path}），将占位`, 'story/items.yaml')
+      image = { file: path, missing }
+    }
+    itemsIR[id] = { name: def.name, desc: def.desc, image, max: def.max }
+  }
+
   const ir: StoryIR = {
-    version: '0.1',
+    version: '0.2',
     title: reg.title,
     entry: reg.entry,
     vars: reg.vars,
     endings: reg.endings,
     characters: charactersIR,
+    items: itemsIR,
+    currency: reg.currency ? { name: reg.currency.name, symbol: reg.currency.symbol } : null,
     assets: {
       backgrounds: assetRefs(reg.backgrounds, '背景'),
       bgm: assetRefs(reg.bgm, 'BGM'),

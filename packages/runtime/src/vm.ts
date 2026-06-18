@@ -4,8 +4,10 @@ import {
   evalExpr,
   type EvalEnv,
   type Op,
+  type ShakeIntensity,
   type StoryIR,
   type Target,
+  type TextStyle,
   type Value,
   type VoiceRef,
 } from '@vn/core'
@@ -38,9 +40,11 @@ export type Effect =
   | { kind: 'bgm'; name: string | null; file: string | null; fade?: number }
   | { kind: 'se'; name: string; file: string | null }
   | { kind: 'wait'; ms: number }
+  | { kind: 'shake'; intensity: ShakeIntensity; ms: number }
 
 export type VMEvent =
   | { type: 'line'; lineKind: 'say' | 'narrate'; who: string | null; text: string; lineId: string; voice: VoiceRef | null; effects: Effect[] }
+  | { type: 'text'; style: TextStyle; title: string | null; content: string; lineId: string; effects: Effect[] }
   | { type: 'choice'; options: Array<{ index: number; text: string }>; effects: Effect[] }
   | { type: 'end'; ending: string; effects: Effect[] }
 
@@ -49,6 +53,8 @@ export interface SaveData {
   pc: number
   vars: Record<string, Value>
   globals: Record<string, Value>
+  /** 物品库存：id -> 数量；旧存档缺此字段时降级为空库存 */
+  items?: Record<string, number>
   prng: number
   stage: Stage
   /** 最近一条行 ID，脚本更新后读档的回退锚点 */
@@ -62,6 +68,7 @@ export class VM {
   private pc = 0
   private vars: Record<string, Value>
   private globals: Record<string, Value>
+  private items: Record<string, number> = {}
   private prng: PRNG
   private stage: Stage
   private anchor: string | null = null
@@ -115,6 +122,11 @@ export class VM {
           }
           return { type: 'line', lineKind: 'say', who: op.who, text: op.text, lineId: op.lineId, voice: op.voice, effects }
         }
+        case 'text': {
+          this.pc++
+          this.anchor = op.lineId
+          return { type: 'text', style: op.style, title: op.title, content: op.content, lineId: op.lineId, effects }
+        }
         case 'bg': {
           this.stage.bg = op.name
           const a = this.ir.assets.backgrounds[op.name]
@@ -162,8 +174,24 @@ export class VM {
           this.pc++
           break
         }
+        case 'shake': {
+          effects.push({ kind: 'shake', intensity: op.intensity, ms: op.ms })
+          this.pc++
+          break
+        }
         case 'set': {
           this.applyAssigns(op.assigns)
+          this.pc++
+          break
+        }
+        case 'item': {
+          this.setItem(op.id, (this.items[op.id] ?? 0) + op.delta)
+          this.pc++
+          break
+        }
+        case 'money': {
+          const cur = typeof this.vars.money === 'number' ? this.vars.money : 0
+          this.vars.money = Math.max(0, cur + op.delta)
           this.pc++
           break
         }
@@ -236,12 +264,23 @@ export class VM {
     this.pendingChoice = null
   }
 
+  /** 当前物品库存（副本，供物品栏 UI 读取） */
+  get inventory(): Record<string, number> {
+    return { ...this.items }
+  }
+
+  /** 当前货币金额（无货币系统时为 0） */
+  get money(): number {
+    return typeof this.vars.money === 'number' ? this.vars.money : 0
+  }
+
   save(): SaveData {
     return structuredClone({
       scene: this.scene,
       pc: this.pendingChoice ?? this.pc,
       vars: this.vars,
       globals: this.globals,
+      items: this.items,
       prng: this.prng.state,
       stage: this.stage,
       anchor: this.anchor,
@@ -254,6 +293,7 @@ export class VM {
     vm.pc = data.pc
     vm.vars = structuredClone(data.vars)
     vm.globals = structuredClone(data.globals)
+    vm.items = structuredClone(data.items ?? {})
     vm.prng.state = data.prng
     vm.stage = structuredClone(data.stage)
     vm.anchor = data.anchor
@@ -268,14 +308,23 @@ export class VM {
         return v
       },
       getGlobal: (n) => this.globals[n] ?? false,
+      getItem: (id) => this.items[id] ?? 0,
       rand: () => this.prng.next(),
     }
+  }
+
+  private setItem(id: string, value: Value): void {
+    if (typeof value !== 'number') throw new VMError(`物品 "${id}" 的数量必须是数字`)
+    const n = Math.max(0, Math.floor(value))
+    if (n === 0) delete this.items[id]
+    else this.items[id] = n
   }
 
   private applyAssigns(assigns: ReadonlyArray<readonly [string, Parameters<typeof evalExpr>[0]]>): void {
     for (const [name, expr] of assigns) {
       const v = evalExpr(expr, this.env())
       if (name.startsWith('global.')) this.globals[name.slice('global.'.length)] = v
+      else if (name.startsWith('item.')) this.setItem(name.slice('item.'.length), v)
       else this.vars[name] = v
     }
   }

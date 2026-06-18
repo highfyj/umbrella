@@ -1,0 +1,7 @@
+# 物品注册表：脚本中以 item.<id> 读取持有数量，用 item 指令增减
+# 配图放 item/<image>，未出图时物品栏占位渲染（与立绘/背景同策略）
+items:
+  折叠伞:
+    name: 折叠伞
+    desc: 早上临出门时塞进书包侧袋的蓝色折叠伞。
+    image: umbrella.png

@@ -39,14 +39,25 @@ export interface VoiceLineView {
   text: string
 }
 
+export interface ItemView {
+  id: string
+  name: string
+  desc: string | null
+  /** item/ 下的配图相对路径；未配图为 null */
+  file: string | null
+  missing: boolean
+  max: number | null
+}
+
 export interface AssetIndex {
   backgrounds: RegisteredAsset[]
   bgm: RegisteredAsset[]
   se: RegisteredAsset[]
   characters: CharacterView[]
+  items: ItemView[]
   voice: Array<{ scene: string; lines: VoiceLineView[] }>
   /** 未注册的散文件 */
-  loose: { bg: string[]; bgm: string[]; se: string[]; sprite: string[]; refs: string[]; tts: string[] }
+  loose: { bg: string[]; bgm: string[]; se: string[]; sprite: string[]; refs: string[]; tts: string[]; item: string[] }
 }
 
 interface ScanResult {
@@ -152,6 +163,16 @@ export function buildAssetIndex(scan: ScanResult, ir: StoryIR, charactersYamlTex
     }
   }
 
+  // 物品：从 IR 的 items 注册表读（name/desc/image/max），配图存在性按扫描判定
+  const registeredItemFiles = new Set<string>()
+  const items: ItemView[] = Object.entries(ir.items ?? {})
+    .map(([id, def]) => {
+      const file = def.image?.file ?? null
+      if (file) registeredItemFiles.add(file)
+      return { id, name: def.name, desc: def.desc, file, missing: file ? !disk.has(file) : false, max: def.max }
+    })
+    .sort((a, b) => a.id.localeCompare(b.id, 'zh'))
+
   const associatedRefs = new Set(characters.flatMap((c) => c.refs.map((r) => r.path)))
   const associatedTts = new Set(characters.map((c) => c.tts?.sample).filter(Boolean) as string[])
   const production = scan.files.production ?? []
@@ -161,6 +182,7 @@ export function buildAssetIndex(scan: ScanResult, ir: StoryIR, charactersYamlTex
     bgm: bgmList,
     se: seList,
     characters,
+    items,
     voice: [...voiceByScene.entries()].map(([scene, lines]) => ({ scene, lines })),
     loose: {
       bg: (scan.files.bg ?? []).filter((f) => !inTable(backgrounds, f)),
@@ -169,6 +191,7 @@ export function buildAssetIndex(scan: ScanResult, ir: StoryIR, charactersYamlTex
       sprite: looseSprites,
       refs: production.filter((f) => f.startsWith('production/refs/') && !associatedRefs.has(f)),
       tts: production.filter((f) => f.startsWith('production/tts/') && !associatedTts.has(f)),
+      item: (scan.files.item ?? []).filter((f) => !registeredItemFiles.has(f)),
     },
   }
 }

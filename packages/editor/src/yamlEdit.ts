@@ -127,4 +127,35 @@ export function clearTtsSample(model: Model, char: string): void {
   })
 }
 
+/** items.yaml：新增/更新物品条目（image 为 item/ 下的相对文件名，去掉 item/ 前缀） */
+export function upsertItem(
+  model: Model,
+  item: { id: string; name?: string; desc?: string; image?: string; max?: number },
+): void {
+  editYamlModel(model, (doc) => {
+    const def: Record<string, unknown> = {}
+    if (item.name) def.name = item.name
+    if (item.desc) def.desc = item.desc
+    if (item.image) def.image = item.image.replace(/^item\//, '')
+    if (typeof item.max === 'number') def.max = item.max
+    doc.setIn(['items', item.id], doc.createNode(def))
+  })
+}
+
+/** items.yaml：只改某个物品的单个字段（配图/说明等），保留其余字段 */
+export function setItemField(model: Model, id: string, field: 'name' | 'desc' | 'image' | 'max', value: string | number | undefined): void {
+  editYamlModel(model, (doc) => {
+    if (doc.getIn(['items', id]) === undefined) return
+    if (value === undefined || value === '') doc.deleteIn(['items', id, field])
+    else doc.setIn(['items', id, field], field === 'image' ? String(value).replace(/^item\//, '') : value)
+  })
+}
+
+/** items.yaml：移除物品条目 */
+export function removeItem(model: Model, id: string): void {
+  editYamlModel(model, (doc) => {
+    doc.deleteIn(['items', id])
+  })
+}
+
 export type { Model as YamlModel }

@@ -31,6 +31,11 @@ describe('JSON Schema 校验样例剧本', () => {
     expect(validate(yamlFile('story/assets.yaml')), JSON.stringify(validate.errors)).toBe(true)
   })
 
+  it('items.yaml', () => {
+    const validate = ajv.compile(schema('items'))
+    expect(validate(yamlFile('story/items.yaml')), JSON.stringify(validate.errors)).toBe(true)
+  })
+
   it('scenes/*.yaml', () => {
     const validate = ajv.compile(schema('scene'))
     for (const f of ['ch01', 'ch02_walk', 'ch02_alone']) {

@@ -42,7 +42,7 @@ function saveLastProject(dir: string): void {
 /** 项目内允许写入素材的相对路径（含子目录与媒体扩展名校验） */
 function safeAssetPath(p: string): boolean {
   return (
-    /^(bg|bgm|se|sprite|voice|production)\//.test(p) &&
+    /^(bg|bgm|se|sprite|voice|production|item)\//.test(p) &&
     !p.includes('..') &&
     !p.includes('\\') &&
     Object.hasOwn(MIME, extname(p).toLowerCase())
@@ -767,7 +767,7 @@ export function vnPlugin(opts: VnPluginOptions): Plugin {
             }
             return out
           }
-          const cats = ['bg', 'bgm', 'se', 'sprite', 'voice', 'production'] as const
+          const cats = ['bg', 'bgm', 'se', 'sprite', 'voice', 'production', 'item'] as const
           const files: Record<string, string[]> = {}
           for (const c of cats) files[c] = walk(c, c)
           json(res, 200, { files })
@@ -780,7 +780,7 @@ export function vnPlugin(opts: VnPluginOptions): Plugin {
                 .filter((f) => /\.ya?ml$/.test(f))
                 .map((f) => `story/scenes/${f}`)
             : []
-          json(res, 200, { files: ['story/story.yaml', 'story/characters.yaml', 'story/assets.yaml', ...scenes] })
+          json(res, 200, { files: ['story/story.yaml', 'story/characters.yaml', 'story/assets.yaml', 'story/items.yaml', ...scenes] })
           return
         }
 
@@ -809,7 +809,7 @@ export function vnPlugin(opts: VnPluginOptions): Plugin {
           return
         }
 
-        if (/^\/(sprite|bg|bgm|se|voice|production)\//.test(url)) {
+        if (/^\/(sprite|bg|bgm|se|voice|production|item)\//.test(url)) {
           const file = join(projectRoot, decodeURIComponent(url))
           if (existsSync(file) && statSync(file).isFile()) {
             res.setHeader('Content-Type', MIME[extname(file).toLowerCase()] ?? 'application/octet-stream')

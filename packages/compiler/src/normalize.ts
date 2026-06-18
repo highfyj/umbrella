@@ -1,4 +1,4 @@
-import type { Assign, ExprAST, StatePatch } from '@vn/core'
+import type { Assign, ExprAST, ShakeIntensity, StatePatch, TextStyle } from '@vn/core'
 import type { Diagnostics, Pos } from './diagnostics.js'
 import { ParsedFile, isMap, isScalar, isSeq, nodePos } from './project.js'
 import { INSTRUCTION_KEYS, Registry } from './registry.js'
@@ -7,6 +7,10 @@ import { ExprError, parseExpr, parseSetValue } from './exprParser.js'
 export type Step =
   | { kind: 'narrate'; text: string; pos: Pos | null }
   | { kind: 'say'; who: string; text: string; face: string | null; id: string | null; voiceOff: boolean; reuse: boolean; pos: Pos | null }
+  | { kind: 'text'; style: TextStyle; title: string | null; content: string; pos: Pos | null }
+  | { kind: 'shake'; intensity: ShakeIntensity; ms: number; pos: Pos | null }
+  | { kind: 'item'; id: string; delta: number; pos: Pos | null }
+  | { kind: 'money'; delta: number; pos: Pos | null }
   | { kind: 'bg'; name: string; transition?: string; duration?: number; pos: Pos | null }
   | { kind: 'show'; who: string; patch: StatePatch; transition?: string; pos: Pos | null }
   | { kind: 'hide'; who: string; transition?: string; pos: Pos | null }
@@ -163,6 +167,7 @@ function normalizeInstruction(instr: string, node: ReturnType<typeof Object>, ke
     bg: ['bg'], show: ['show'], hide: ['hide'], bgm: ['bgm'], se: ['se'], wait: ['wait'],
     set: ['set'], if: ['if', 'then', 'else'], random: ['random'], choice: ['choice'],
     label: ['label'], jump: ['jump'], end: ['end'],
+    text: ['text'], shake: ['shake'], item: ['item'], money: ['money'],
   }
   const extra = keys.filter((k) => !allowed[instr].includes(k))
   if (extra.length) {
@@ -218,6 +223,49 @@ function normalizeInstruction(instr: string, node: ReturnType<typeof Object>, ke
     case 'se': {
       const name = expectStr(v, 'se')
       return name ? { kind: 'se', name, pos } : null
+    }
+    case 'text': {
+      if (typeof v === 'string') return { kind: 'text', style: 'note', title: null, content: v, pos }
+      const o = (v ?? {}) as Record<string, unknown>
+      const content = expectStr(o.content, 'text.content')
+      if (content === null) return null
+      return { kind: 'text', style: parseTextStyle(o.style, ctx, pos), title: strOpt(o.title) ?? null, content, pos }
+    }
+    case 'shake': {
+      if (typeof v === 'string') {
+        const intensity = parseIntensity(v, ctx, pos)
+        return { kind: 'shake', intensity, ms: defaultShakeMs(intensity), pos }
+      }
+      const o = (v ?? {}) as Record<string, unknown>
+      const intensity = parseIntensity(o.intensity, ctx, pos)
+      const ms = typeof o.ms === 'number' && o.ms > 0 ? o.ms : defaultShakeMs(intensity)
+      return { kind: 'shake', intensity, ms, pos }
+    }
+    case 'item': {
+      const o = (v ?? {}) as Record<string, unknown>
+      const get = strOpt(o.get)
+      const lose = strOpt(o.lose)
+      if ((get && lose) || (!get && !lose)) {
+        diag.error('bad-instruction', 'item 需要 get 或 lose 其一', file.path, pos)
+        return null
+      }
+      const n = typeof o.n === 'number' ? o.n : 1
+      if (!Number.isInteger(n) || n <= 0) {
+        diag.error('bad-instruction', 'item 的 n 必须是正整数', file.path, pos)
+        return null
+      }
+      return { kind: 'item', id: (get ?? lose)!, delta: get ? n : -n, pos }
+    }
+    case 'money': {
+      if (typeof v === 'number') return { kind: 'money', delta: v, pos }
+      const o = (v ?? {}) as Record<string, unknown>
+      const earn = typeof o.earn === 'number' ? o.earn : null
+      const spend = typeof o.spend === 'number' ? o.spend : null
+      if ((earn !== null) === (spend !== null)) {
+        diag.error('bad-instruction', 'money 需要 earn 或 spend 其一（或直接给数字）', file.path, pos)
+        return null
+      }
+      return { kind: 'money', delta: earn !== null ? earn : -spend!, pos }
     }
     case 'wait': {
       if (typeof v !== 'number' || v < 0) {
@@ -386,6 +434,31 @@ function tryExpr(src: string, ctx: Ctx, pos: Pos | null): ExprAST | null {
 
 function toJS(node: unknown): unknown {
   return (node as { toJSON(): unknown }).toJSON()
+}
+
+const TEXT_STYLES = new Set<TextStyle>(['letter', 'monologue', 'intro', 'note'])
+
+function parseTextStyle(v: unknown, ctx: Ctx, pos: Pos | null): TextStyle {
+  if (v === undefined) return 'note'
+  if (typeof v === 'string' && TEXT_STYLES.has(v as TextStyle)) return v as TextStyle
+  ctx.diag.error('bad-instruction', `text.style 只能是 letter/monologue/intro/note`, ctx.file.path, pos)
+  return 'note'
+}
+
+const INTENSITY_ALIAS: Record<string, ShakeIntensity> = {
+  弱: 'light', 中: 'medium', 强: 'heavy',
+  light: 'light', medium: 'medium', heavy: 'heavy',
+}
+
+function parseIntensity(v: unknown, ctx: Ctx, pos: Pos | null): ShakeIntensity {
+  if (v === undefined) return 'medium'
+  if (typeof v === 'string' && INTENSITY_ALIAS[v]) return INTENSITY_ALIAS[v]
+  ctx.diag.error('bad-instruction', `shake 强度只能是 弱/中/强（或 light/medium/heavy）`, ctx.file.path, pos)
+  return 'medium'
+}
+
+function defaultShakeMs(intensity: ShakeIntensity): number {
+  return intensity === 'light' ? 300 : intensity === 'heavy' ? 700 : 500
 }
 
 function strOpt(v: unknown): string | undefined {

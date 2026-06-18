@@ -23,8 +23,14 @@
 | 资产管理强化 | 项目切换、本机导入（预览）、移除（确认）、BGM 补播与静音 | 073d203 |
 | 生图集成 | codex image2 生图 + rembg 抠图（设置/探活/抽卡候选/落盘）、立绘/背景/基准图三流程、AI 生成入口 | （本次） |
 | ComfyUI 本地生图 | ComfyUI 便携包 + Juggernaut XL/Animagine XL 模型 + IP-Adapter 角色一致性，环境与模型清单见 [comfyui-setup.md](comfyui-setup.md) | （后续） |
+| DSL v0.2 扩充 | 全屏文本层 `text`、物品系统 `item`（`item.<id>` 命名空间 + 物品栏）、货币 `money`（currency 开关 + 内置变量 + HUD）、全屏震动 `shake`；IR 升 0.2，新增 items.yaml + 各层校验/运行/渲染 + 11 个新测试 | （本次） |
+| 编辑器物品管理 | 资产面板新增"物品"分节：新增/编辑（名称·说明·堆叠上限）、配图（浏览本机拷入 item/ 或换图）、注册 item/ 散图、移除（含可选删文件）、拖拽插入 `item: { get: id }`；items.yaml 接入 monaco schema 补全、文件列表、静态伺服 | （本次） |
 
-测试：45/45 通过（`npm test`）；类型检查零错误（`npm run typecheck`）。
+测试：56/56 通过（`npm test`）；类型检查零错误（`npm run typecheck`）。
+
+> v0.2 四特性的完整设计见 [dsl-design.md](dsl-design.md) 第 14–17 节。要点：物品退化为只读数字命名空间
+> `item.<id>`、货币退化为内置变量 `money`，复用既有表达式/分支/set/存档机制；`text`/`shake` 是新 op。
+> 物品配图缺失（`item/<image>`）依旧只警告 + 占位。
 
 ## 3. 快速上手（新机器）
 
@@ -47,9 +53,9 @@ npm run vn -- check    # CLI 编译检查
 ```
 docs/dsl-design.md     DSL 设计文档（数据模型的唯一权威）
 docs/progress.md       本文档
-story/                 剧本源文件：story.yaml(变量/结局) characters.yaml(角色/立绘变体/production)
-                       assets.yaml(背景/BGM/SE 词表) scenes/*.yaml(一文件一场景)
-voice/ sprite/ bg/ bgm/ se/   运行资产（约定目录，缺失时占位，当前为空）
+story/                 剧本源文件：story.yaml(变量/结局/currency) characters.yaml(角色/立绘变体/production)
+                       assets.yaml(背景/BGM/SE 词表) items.yaml(物品注册表，可缺省) scenes/*.yaml(一文件一场景)
+voice/ sprite/ bg/ bgm/ se/ item/   运行资产（约定目录，缺失时占位，当前为空）
 production/            编辑素材（不发布）：refs/ AI出图参考图、tts/ 音色参考音频
 voice.lock             语音清单 lockfile（编译器/TTS 提交共同维护，当前未生成）
 packages/
