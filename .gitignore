@@ -19,3 +19,12 @@ dist/
 /_cv3_test.wav
 /_cv3_direct.wav
 
+# CosyVoice 运行时产物（模型、日志、输出、参考音频、缓存，体积大/一次性，不入库）
+/cosyvoice/__pycache__/
+/cosyvoice/logs/
+/cosyvoice/output/
+/cosyvoice/pretrained_models/
+/cosyvoice/reference_voices/
+/cosyvoice/*.bak
+/cosyvoice/test_clone_output.wav
+

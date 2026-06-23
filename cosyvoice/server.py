@@ -29,6 +29,7 @@ import logging
 import tempfile
 import time
 from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import JSONResponse, Response
@@ -111,22 +112,23 @@ app = FastAPI(title="CosyVoice3 TTS", version="1.0")
 @app.get("/")
 def root():
     """探活端点"""
-    return {"status": "ok", "service": "cosyvoice3", "model": _model_dir}
+    return {"status": "ok", "service": "cosyvoice3", "model": _model_dir,
+            "spks": _cosyvoice.list_available_spks() if _cosyvoice else []}
 
 
-@app.post("/inference_zero_shot")
-async def inference_zero_shot(
-    tts_text: str = Form(...),
-    prompt_text: str = Form(""),
+@app.post("/register_spk")
+async def register_spk(
+    spk_id: str = Form(...),
     prompt_wav: UploadFile = File(...),
-    speed: float = Form(1.0),
+    prompt_text: str = Form(""),
+    mode: str = Form("zero_shot"),  # zero_shot | instruct
 ):
-    """零样本音色克隆（3 秒极速复刻）"""
-    if not tts_text.strip():
-        return JSONResponse({"error": "tts_text 不能为空"}, status_code=400)
-    if not prompt_text.strip():
-        return JSONResponse({"error": "zero_shot 需要 prompt_text（参考音频的文字转写）"}, status_code=400)
+    """预提取并缓存说话人特征，之后用 zero_shot_spk_id 复用，跳过 prompt 重复处理。
 
+    mode=instruct 时，prompt_text 当作 instruct 指令（套 instruct 的 system 格式）。
+    """
+    if not spk_id.strip():
+        return JSONResponse({"error": "spk_id 不能为空"}, status_code=400)
     audio_bytes = await prompt_wav.read()
     if not audio_bytes:
         return JSONResponse({"error": "prompt_wav 为空"}, status_code=400)
@@ -135,7 +137,54 @@ async def inference_zero_shot(
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
         tf.write(audio_bytes)
         prompt_path = tf.name
+    try:
+        if mode == "instruct":
+            ptext = prompt_text if prompt_text.endswith("<|endofprompt|>") else \
+                "You are a helpful assistant. " + prompt_text + "<|endofprompt|>"
+        else:
+            ptext = ensure_system_prefix(prompt_text)
+        model.add_zero_shot_spk(ptext, prompt_path, spk_id)
+    finally:
+        Path(prompt_path).unlink(missing_ok=True)
+    log.info("已注册音色 spk_id=%s mode=%s", spk_id, mode)
+    return {"status": "ok", "spk_id": spk_id, "mode": mode,
+            "spks": model.list_available_spks()}
 
+
+@app.post("/inference_zero_shot")
+async def inference_zero_shot(
+    tts_text: str = Form(...),
+    prompt_text: str = Form(""),
+    prompt_wav: Optional[UploadFile] = File(None),
+    zero_shot_spk_id: str = Form(""),
+    speed: float = Form(1.0),
+):
+    """零样本音色克隆。传 zero_shot_spk_id 则复用已注册音色（跳过 prompt 处理，更快）。"""
+    if not tts_text.strip():
+        return JSONResponse({"error": "tts_text 不能为空"}, status_code=400)
+
+    model = get_model()
+
+    if zero_shot_spk_id:
+        if zero_shot_spk_id not in model.list_available_spks():
+            return JSONResponse({"error": f"未注册的 spk_id: {zero_shot_spk_id}"}, status_code=400)
+        chunks = list(model.inference_zero_shot(
+            tts_text, "", "", zero_shot_spk_id=zero_shot_spk_id, stream=False, speed=speed))
+        pcm = b"".join(tensor_to_pcm(c["tts_speech"]) for c in chunks)
+        sr = getattr(model, "sample_rate", 24000)
+        return Response(content=wrap_pcm_wav(pcm, sr), media_type="audio/wav")
+
+    if not prompt_text.strip():
+        return JSONResponse({"error": "zero_shot 需要 prompt_text（参考音频的文字转写）"}, status_code=400)
+    if prompt_wav is None:
+        return JSONResponse({"error": "需要 prompt_wav 或 zero_shot_spk_id"}, status_code=400)
+    audio_bytes = await prompt_wav.read()
+    if not audio_bytes:
+        return JSONResponse({"error": "prompt_wav 为空"}, status_code=400)
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+        tf.write(audio_bytes)
+        prompt_path = tf.name
     try:
         # CosyVoice3 的 prompt_text 需要 system prefix
         chunks = list(model.inference_zero_shot(
@@ -152,22 +201,35 @@ async def inference_zero_shot(
 @app.post("/inference_instruct2")
 async def inference_instruct2(
     tts_text: str = Form(...),
-    prompt_wav: UploadFile = File(...),
+    prompt_wav: Optional[UploadFile] = File(None),
     instruct_text: str = Form(""),
+    zero_shot_spk_id: str = Form(""),
     speed: float = Form(1.0),
 ):
-    """自然语言指令控制（情感/语气/方言，CosyVoice3 特性）"""
+    """自然语言指令控制。传 zero_shot_spk_id 则复用已注册音色（含其注册时的 instruct）。"""
     if not tts_text.strip():
         return JSONResponse({"error": "tts_text 不能为空"}, status_code=400)
+
+    model = get_model()
+
+    if zero_shot_spk_id:
+        if zero_shot_spk_id not in model.list_available_spks():
+            return JSONResponse({"error": f"未注册的 spk_id: {zero_shot_spk_id}"}, status_code=400)
+        chunks = list(model.inference_instruct2(
+            tts_text, "", "", zero_shot_spk_id=zero_shot_spk_id, stream=False, speed=speed))
+        pcm = b"".join(tensor_to_pcm(c["tts_speech"]) for c in chunks)
+        sr = getattr(model, "sample_rate", 24000)
+        return Response(content=wrap_pcm_wav(pcm, sr), media_type="audio/wav")
+
+    if prompt_wav is None:
+        return JSONResponse({"error": "需要 prompt_wav 或 zero_shot_spk_id"}, status_code=400)
     audio_bytes = await prompt_wav.read()
     if not audio_bytes:
         return JSONResponse({"error": "prompt_wav 为空"}, status_code=400)
 
-    model = get_model()
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
         tf.write(audio_bytes)
         prompt_path = tf.name
-
     try:
         # instruct_text 补全 system prefix
         full_instruct = instruct_text if instruct_text.endswith("<|endofprompt|>") else \
